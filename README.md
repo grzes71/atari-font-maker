@@ -98,5 +98,5 @@ Atari FontMaker uses a JSON format for clipboard data, allowing you to easily co
 
 * **Original Authors:** [matosimi](https://github.com/matosimi) and RetroCoder.
 * Thank you to the Atari 8-bit community for years of continuous feedback and testing on the original versions that defined the feature set for this port.
-* Rust port developed by **[Twoje Imię/Nick]**.
+* Rust port developed by ** grzes71 **.
 
