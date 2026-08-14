@@ -2,7 +2,10 @@
 
 use super::glyph::GlyphBytes;
 use super::transforms;
+use crate::codecs::binary_fnt::{self, DUAL_FONT_SIZE};
 use crate::constants::{FONT_BANK_SIZE, GLYPH_HEIGHT, TOTAL_FONTS_SIZE};
+use crate::error::FontFormatError;
+use std::io::{Read, Write};
 
 /// Complete 4-bank font set containing exactly 4096 bytes (512 characters * 8 bytes).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +95,58 @@ impl FontBankSet {
     pub fn copy_to(&mut self, src: &[u8], src_offset: usize, dest_offset: usize, count: usize) {
         self.bytes[dest_offset..dest_offset + count]
             .copy_from_slice(&src[src_offset..src_offset + count]);
+    }
+
+    // Binary file loading & saving methods
+
+    /// Load a 1024-byte .fnt file into the specified bank index (0..=3).
+    pub fn load_fnt(&mut self, bank: usize, reader: &mut impl Read) -> Result<(), FontFormatError> {
+        if bank >= 4 {
+            return Err(FontFormatError::InvalidBankIndex(bank));
+        }
+        let data = binary_fnt::load_fnt(reader)?;
+        self.copy_to(&data, 0, bank * FONT_BANK_SIZE, FONT_BANK_SIZE);
+        Ok(())
+    }
+
+    /// Save 1024 bytes of the specified bank (0..=3) to a writer in .fnt format.
+    pub fn save_fnt(&self, bank: usize, writer: &mut impl Write) -> Result<(), FontFormatError> {
+        if bank >= 4 {
+            return Err(FontFormatError::InvalidBankIndex(bank));
+        }
+        let start = bank * FONT_BANK_SIZE;
+        let mut data = [0u8; FONT_BANK_SIZE];
+        data.copy_from_slice(&self.bytes[start..start + FONT_BANK_SIZE]);
+        binary_fnt::save_fnt(&data, writer)
+    }
+
+    /// Load a 2048-byte .fn2 file into two consecutive banks starting at `start_bank` (0..=2).
+    pub fn load_fn2(
+        &mut self,
+        start_bank: usize,
+        reader: &mut impl Read,
+    ) -> Result<(), FontFormatError> {
+        if start_bank > 2 {
+            return Err(FontFormatError::InvalidBankIndex(start_bank));
+        }
+        let data = binary_fnt::load_fn2(reader)?;
+        self.copy_to(&data, 0, start_bank * FONT_BANK_SIZE, DUAL_FONT_SIZE);
+        Ok(())
+    }
+
+    /// Save 2048 bytes of two consecutive banks starting at `start_bank` (0..=2) in .fn2 format.
+    pub fn save_fn2(
+        &self,
+        start_bank: usize,
+        writer: &mut impl Write,
+    ) -> Result<(), FontFormatError> {
+        if start_bank > 2 {
+            return Err(FontFormatError::InvalidBankIndex(start_bank));
+        }
+        let start = start_bank * FONT_BANK_SIZE;
+        let mut data = [0u8; DUAL_FONT_SIZE];
+        data.copy_from_slice(&self.bytes[start..start + DUAL_FONT_SIZE]);
+        binary_fnt::save_fn2(&data, writer)
     }
 
     // In-place glyph operations matching AtariFont.cs

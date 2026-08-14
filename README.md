@@ -21,7 +21,7 @@ To build this project, you will need the [Rust toolchain](https://rustup.rs/) in
 ### Installation
 Clone the repository and run the project using Cargo:
 ```bash
-git clone [https://github.com/your-username/atari-fontmaker-rust.git](https://github.com/your-username/atari-fontmaker-rust.git)
+git clone git@github.com:grzes71/atari-font-maker.git
 cd atari-fontmaker-rust
 cargo build --release
 cargo run --release

@@ -27,6 +27,12 @@ pub const SELECTOR_GRID_CHARS: usize = 512;
 /// Maximum number of color registers supported in project.
 pub const NUM_COLORS: usize = 10;
 
+/// Number of entries in a full Atari palette table (256 colors).
+pub const PALETTE_ENTRIES: usize = 256;
+
+/// Total byte size of a 256-color raw palette file (.pal) in RGB format (256 * 3 = 768 bytes).
+pub const PALETTE_SIZE: usize = PALETTE_ENTRIES * 3;
+
 /// Lookup table: Color index to 2-bit value.
 pub const COLOR_INDEX_2_BITS: [u8; 6] = [0, 0, 1, 2, 3, 3];
 
