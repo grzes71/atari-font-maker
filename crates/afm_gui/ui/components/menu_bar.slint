@@ -1,0 +1,68 @@
+import { Button } from "std-widgets.slint";
+
+export component MenuBar inherits Rectangle {
+    height: 28px;
+    background: #2b2b2b;
+
+    callback new_clicked();
+    callback open_project_clicked();
+    callback save_project_clicked();
+    callback export_font_clicked();
+    callback export_view_clicked();
+    callback import_view_clicked();
+    callback view_actions_clicked();
+    callback analysis_clicked();
+    callback tileset_clicked();
+    callback preferences_clicked();
+    callback undo_clicked();
+    callback redo_clicked();
+    callback about_clicked();
+
+    HorizontalLayout {
+        padding_left: 8px;
+        padding_right: 8px;
+        spacing: 4px;
+        alignment: start;
+
+        Button {
+            text: "📄 New";
+            clicked => { root.new_clicked(); }
+        }
+        Button {
+            text: "📂 Open";
+            clicked => { root.open_project_clicked(); }
+        }
+        Button {
+            text: "💾 Save";
+            clicked => { root.save_project_clicked(); }
+        }
+        Button {
+            text: "🔤 Export Font...";
+            clicked => { root.export_font_clicked(); }
+        }
+        Button {
+            text: "🖥️ Export View...";
+            clicked => { root.export_view_clicked(); }
+        }
+        Button {
+            text: "📥 Import View...";
+            clicked => { root.import_view_clicked(); }
+        }
+        Button {
+            text: "🛠️ View Actions...";
+            clicked => { root.view_actions_clicked(); }
+        }
+        Button {
+            text: "📊 Analysis...";
+            clicked => { root.analysis_clicked(); }
+        }
+        Button {
+            text: "🧩 TileSet...";
+            clicked => { root.tileset_clicked(); }
+        }
+        Button {
+            text: "⚙ Preferences...";
+            clicked => { root.preferences_clicked(); }
+        }
+    }
+}

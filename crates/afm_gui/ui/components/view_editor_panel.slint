@@ -1,0 +1,149 @@
+import { Button } from "std-widgets.slint";
+
+export component ViewEditorPanel inherits Rectangle {
+    background: #1a1a1a;
+    border_width: 1px;
+    border_color: #333333;
+
+    in property <image> view_image;
+    in property <int> selected_x: 0;
+    in property <int> selected_y: 0;
+    in property <string> page_info: "Page 1 of 1";
+    in property <bool> can_view_undo: false;
+    in property <bool> can_view_redo: false;
+
+    callback cell_clicked(int, int, int); // x: 0..39, y: 0..25, button: 0=LMB, 1=RMB
+    callback cell_dragged(int, int);
+    callback cell_released();
+    callback prev_page();
+    callback next_page();
+    callback add_page();
+    callback delete_page();
+    callback view_undo_clicked();
+    callback view_redo_clicked();
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+        alignment: start;
+
+        // Header controls (Page switcher, Undo/Redo, Position label)
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+
+            Text {
+                text: "Atari View (40×26)";
+                color: #00d2ff;
+                font_size: 13px;
+                font_weight: 700;
+                vertical_alignment: center;
+            }
+
+            Rectangle { width: 10px; }
+
+            Button {
+                text: "◀ Prev";
+                clicked => { root.prev_page(); }
+            }
+
+            Text {
+                text: root.page_info;
+                color: #e0e0e0;
+                font_size: 12px;
+                vertical_alignment: center;
+            }
+
+            Button {
+                text: "Next ▶";
+                clicked => { root.next_page(); }
+            }
+
+            Button {
+                text: "+ Add Page";
+                clicked => { root.add_page(); }
+            }
+
+            Button {
+                text: "− Del Page";
+                clicked => { root.delete_page(); }
+            }
+
+            Rectangle { width: 15px; }
+
+            Button {
+                text: "View Undo";
+                enabled: root.can_view_undo;
+                clicked => { root.view_undo_clicked(); }
+            }
+
+            Button {
+                text: "View Redo";
+                enabled: root.can_view_redo;
+                clicked => { root.view_redo_clicked(); }
+            }
+
+            Rectangle { horizontal_stretch: 1; }
+
+            Text {
+                text: "Cell: (" + root.selected_x + ", " + root.selected_y + ")";
+                color: #aaaaaa;
+                font_size: 11px;
+                vertical_alignment: center;
+            }
+        }
+
+        // Viewport 640x416 px representing the full Atari Screen
+        Rectangle {
+            width: 642px;
+            height: 418px;
+            background: #000000;
+            border_width: 1px;
+            border_color: #444444;
+
+            Image {
+                x: 1px;
+                y: 1px;
+                width: 640px;
+                height: 416px;
+                source: root.view_image;
+                image-fit: fill;
+            }
+
+            // Cell Selection Cursor overlay (16x16 px)
+            Rectangle {
+                x: 1px + (root.selected_x * 16px);
+                y: 1px + (root.selected_y * 16px);
+                width: 16px;
+                height: 16px;
+                border_width: 1px;
+                border_color: #ffff00;
+                background: #ffff0033;
+            }
+
+            TouchArea {
+                width: 640px;
+                height: 416px;
+
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        let rx = Math.max(0, Math.min(39, Math.floor(self.mouse-x / 16px)));
+                        let ry = Math.max(0, Math.min(25, Math.floor(self.mouse-y / 16px)));
+                        let btn = (event.button == PointerEventButton.right) ? 1 : 0;
+                        root.cell_clicked(rx, ry, btn);
+                    } else if (event.kind == PointerEventKind.up) {
+                        root.cell_released();
+                    }
+                }
+
+                moved => {
+                    if (self.pressed) {
+                        let rx = Math.max(0, Math.min(39, Math.floor(self.mouse-x / 16px)));
+                        let ry = Math.max(0, Math.min(25, Math.floor(self.mouse-y / 16px)));
+                        root.cell_dragged(rx, ry);
+                    }
+                }
+            }
+        }
+    }
+}

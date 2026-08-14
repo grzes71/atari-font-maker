@@ -1,0 +1,134 @@
+import { Button, ScrollView } from "std-widgets.slint";
+
+export component FontAnalysisModal inherits Rectangle {
+    in property <bool> is_open: false;
+    in property <string> summary_text: "Font Analysis Summary";
+    in property <string> details_text: "Select a character to see usage details across all pages.";
+    in property <int> selected_char_idx: 0;
+
+    callback close_clicked();
+    callback refresh_clicked();
+    callback select_char_clicked(int);
+
+    visible: root.is_open;
+    background: #00000088;
+
+    Rectangle {
+        width: 600px;
+        height: 480px;
+        background: #252526;
+        border-color: #007acc;
+        border-width: 2px;
+        border-radius: 6px;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #000000aa;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Title Bar
+            HorizontalLayout {
+                Text {
+                    text: "📊 Font Usage & Duplicate Analysis";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                TouchArea {
+                    width: 28px;
+                    height: 24px;
+                    clicked => { root.close_clicked(); }
+                    Rectangle {
+                        background: parent.has-hover ? #e81123 : #333333;
+                        border-radius: 3px;
+                        Text {
+                            text: "✕";
+                            color: #ffffff;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #3e3e42; }
+
+            // Summary Section
+            Rectangle {
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+                height: 100px;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 4px;
+
+                    Text {
+                        text: "Project Statistics:";
+                        color: #dcdcaa;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+                    Text {
+                        text: root.summary_text;
+                        color: #cccccc;
+                        font-size: 11px;
+                    }
+                }
+            }
+
+            // Detailed Usage Section
+            Rectangle {
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+                vertical-stretch: 1;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+
+                    Text {
+                        text: "Character Details (Selected: $" + (root.selected_char_idx < 16 ? "0" : "") + (root.selected_char_idx) + "):";
+                        color: #4ec9b0;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+
+                    ScrollView {
+                        Text {
+                            text: root.details_text;
+                            color: #d4d4d4;
+                            font-family: "monospace";
+                            font-size: 11px;
+                        }
+                    }
+                }
+            }
+
+            // Bottom Actions Bar
+            HorizontalLayout {
+                spacing: 10px;
+
+                Button {
+                    text: "🔄 Re-analyze";
+                    clicked => { root.refresh_clicked(); }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Button {
+                    text: "Close";
+                    clicked => { root.close_clicked(); }
+                }
+            }
+        }
+    }
+}

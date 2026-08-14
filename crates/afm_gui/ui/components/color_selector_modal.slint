@@ -1,0 +1,84 @@
+import { Button } from "std-widgets.slint";
+
+export component ColorSelectorModal inherits Rectangle {
+    in property <bool> is_open: false;
+    in property <[color]> palette_colors; // 128 standard colors (row-major: 16 rows x 8 cols)
+    in property <int> active_reg: 1;
+
+    callback color_picked(int); // atari color code (0..254 even)
+    callback close_clicked();
+
+    if root.is_open : Rectangle {
+        background: #000000bb;
+
+        TouchArea {} // Block events underneath
+
+        Rectangle {
+            width: 400px;
+            height: 480px;
+            background: #242424;
+            border_width: 2px;
+            border_color: #00d2ff;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #000000cc;
+
+            VerticalLayout {
+                padding: 14px;
+                spacing: 10px;
+
+                HorizontalLayout {
+                    Text {
+                        text: "Atari PAL Color Selector (Register " + root.active_reg + ")";
+                        color: #00d2ff;
+                        font_size: 13px;
+                        font_weight: 700;
+                        vertical_alignment: center;
+                    }
+                    Rectangle { horizontal_stretch: 1; }
+                    Button {
+                        text: "✕";
+                        clicked => { root.close_clicked(); }
+                    }
+                }
+
+                // 16 rows (Hue 0..15) x 8 cols (Lum 0, 2, 4, 6, 8, A, C, E)
+                Rectangle {
+                    width: 368px;
+                    height: 368px;
+                    background: #111111;
+                    border_width: 1px;
+                    border_color: #444444;
+
+                    for col[idx] in root.palette_colors : Rectangle {
+                        x: (Math.mod(idx, 8) * 46px);
+                        y: (Math.floor(idx / 8) * 23px);
+                        width: 46px;
+                        height: 23px;
+                        background: col;
+                        border_width: 1px;
+                        border_color: #000000;
+
+                        TouchArea {
+                            clicked => {
+                                let row = Math.floor(idx / 8);
+                                let col_idx = Math.mod(idx, 8);
+                                let code = (row * 16) + (col_idx * 2);
+                                root.color_picked(code);
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: center;
+
+                    Button {
+                        text: "Close";
+                        clicked => { root.close_clicked(); }
+                    }
+                }
+            }
+        }
+    }
+}

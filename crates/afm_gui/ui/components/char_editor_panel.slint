@@ -1,0 +1,172 @@
+import { Button } from "std-widgets.slint";
+
+export component CharEditorPanel inherits Rectangle {
+    background: #242424;
+    border_width: 1px;
+    border_color: #3a3a3a;
+
+    in property <string> hex_label: "$00";
+    in property <string> dec_label: "#0";
+    in property <string> ascii_label: "' '";
+    in property <[color]> pixel_colors;
+    in property <int> active_mode: 0;
+    in property <int> selected_color: 2; // Active draw color (0..3 in mode 4/5)
+
+    callback pixel_clicked(int, int, int); // (x, y, button: 0=Left, 1=Right)
+    callback pixel_dragged(int, int);      // (x, y)
+    callback pixel_released();
+    callback select_draw_color(int);
+
+    // Transform callbacks
+    callback shift_left();
+    callback shift_right();
+    callback shift_up();
+    callback shift_down();
+    callback rotate_left();
+    callback rotate_right();
+    callback mirror_horizontal();
+    callback mirror_vertical();
+    callback invert();
+    callback clear();
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        // Header Title + Info Labels
+        HorizontalLayout {
+            Text {
+                text: "Character Editor";
+                color: #ffffff;
+                font_size: 14px;
+                font_weight: 700;
+                vertical_alignment: center;
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: end;
+
+                Text {
+                    text: root.hex_label;
+                    color: #00d2ff;
+                    font_size: 13px;
+                    font_weight: 700;
+                    vertical_alignment: center;
+                }
+                Text {
+                    text: root.dec_label;
+                    color: #aaaaaa;
+                    font_size: 13px;
+                    vertical_alignment: center;
+                }
+                Text {
+                    text: root.ascii_label;
+                    color: #ffaa00;
+                    font_size: 13px;
+                    font_weight: 700;
+                    vertical_alignment: center;
+                }
+            }
+        }
+
+        // Color selector buttons for Mode 4 / 5 / 10
+        if root.active_mode == 1 || root.active_mode == 2: HorizontalLayout {
+            spacing: 4px;
+            alignment: center;
+
+            Button {
+                text: root.selected_color == 0 ? "[BAK]" : "BAK";
+                clicked => { root.select_draw_color(0); }
+            }
+            Button {
+                text: root.selected_color == 1 ? "[PF0]" : "PF0";
+                clicked => { root.select_draw_color(1); }
+            }
+            Button {
+                text: root.selected_color == 2 ? "[PF1]" : "PF1";
+                clicked => { root.select_draw_color(2); }
+            }
+            Button {
+                text: root.selected_color == 3 ? "[PF2]" : "PF2";
+                clicked => { root.select_draw_color(3); }
+            }
+        }
+
+        // Interactive 8x8 Pixel Grid Container
+        HorizontalLayout {
+            alignment: center;
+
+            grid_box := Rectangle {
+                width: 240px;
+                height: 240px;
+                background: #111111;
+                border_width: 2px;
+                border_color: #444444;
+
+                // 8x8 Grid of Cells
+                for row_idx in 8: VerticalLayout {
+                    y: row_idx * 30px;
+                    height: 30px;
+                    width: 240px;
+
+                    HorizontalLayout {
+                        for col_idx in 8: Rectangle {
+                            width: 30px;
+                            height: 30px;
+                            background: root.pixel_colors[row_idx * 8 + col_idx];
+                            border_width: 1px;
+                            border_color: #2b2b2b;
+                        }
+                    }
+                }
+
+                // Interactive TouchArea for Mouse drawing and dragging
+                touch := TouchArea {
+                    width: parent.width;
+                    height: parent.height;
+
+                    pointer_event(event) => {
+                        if event.kind == PointerEventKind.down {
+                            let cell_x = Math.min(Math.max(0, Math.floor(self.mouse_x / 30px)), 7);
+                            let cell_y = Math.min(Math.max(0, Math.floor(self.mouse_y / 30px)), 7);
+                            let btn = event.button == PointerEventButton.right ? 1 : 0;
+                            root.pixel_clicked(cell_x, cell_y, btn);
+                        }
+                        if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                            root.pixel_released();
+                        }
+                    }
+
+                    moved => {
+                        if self.pressed {
+                            let cell_x = Math.min(Math.max(0, Math.floor(self.mouse_x / 30px)), 7);
+                            let cell_y = Math.min(Math.max(0, Math.floor(self.mouse_y / 30px)), 7);
+                            root.pixel_dragged(cell_x, cell_y);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Glyph Transformation Action Buttons (Matching C# CharacterEditor)
+        GridLayout {
+            spacing: 4px;
+            Row {
+                Button { text: "Shift L"; clicked => { root.shift_left(); } }
+                Button { text: "Shift R"; clicked => { root.shift_right(); } }
+                Button { text: "Shift U"; clicked => { root.shift_up(); } }
+                Button { text: "Shift D"; clicked => { root.shift_down(); } }
+            }
+            Row {
+                Button { text: "Rot L"; clicked => { root.rotate_left(); } }
+                Button { text: "Rot R"; clicked => { root.rotate_right(); } }
+                Button { text: "Mirr H"; clicked => { root.mirror_horizontal(); } }
+                Button { text: "Mirr V"; clicked => { root.mirror_vertical(); } }
+            }
+            Row {
+                Button { text: "Invert"; clicked => { root.invert(); } }
+                Button { text: "Clear"; clicked => { root.clear(); } }
+            }
+        }
+    }
+}

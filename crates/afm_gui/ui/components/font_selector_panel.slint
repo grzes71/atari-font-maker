@@ -1,0 +1,95 @@
+import { Button } from "std-widgets.slint";
+
+export component FontSelectorPanel inherits Rectangle {
+    background: #242424;
+    border_width: 1px;
+    border_color: #3a3a3a;
+
+    in property <image> selector_image;
+    in property <int> selected_bank_pair: 0;
+    in property <int> selected_char: 0;
+    in property <string> font_title: "Font 1 & 2";
+
+    callback bank_toggle_clicked();
+    callback character_clicked(int);
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+
+        // Header: Title + Bank Toggle Button
+        HorizontalLayout {
+            Text {
+                text: "Font Selector (512 Glyphs)";
+                color: #ffffff;
+                font_size: 14px;
+                font_weight: 700;
+                vertical_alignment: center;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+
+                Text {
+                    text: root.font_title;
+                    color: #00d2ff;
+                    font_size: 13px;
+                    font_weight: 700;
+                    vertical_alignment: center;
+                }
+
+                Button {
+                    text: root.selected_bank_pair == 0 ? "Banks 1 & 2" : "Banks 3 & 4";
+                    clicked => { root.bank_toggle_clicked(); }
+                }
+            }
+        }
+
+        // 512x256 Font Atlas Viewport with Selection Cursor Overlay
+        HorizontalLayout {
+            alignment: center;
+
+            atlas_container := Rectangle {
+                width: 512px;
+                height: 256px;
+                background: #000000;
+                border_width: 1px;
+                border_color: #444444;
+                clip: true;
+
+                // Atlas raster image from FontAtlasBuffer
+                Image {
+                    width: 512px;
+                    height: 256px;
+                    source: root.selector_image;
+                    image_fit: fill;
+                }
+
+                // Selection cursor rectangle overlay (16x16 px)
+                cursor := Rectangle {
+                    x: Math.mod(root.selected_char, 32) * 16px;
+                    y: Math.floor(root.selected_char / 32) * 16px;
+                    width: 16px;
+                    height: 16px;
+                    border_width: 2px;
+                    border_color: #00d2ff;
+                    background: #00d2ff33;
+                }
+
+                // Interactive TouchArea for character selection
+                touch := TouchArea {
+                    width: parent.width;
+                    height: parent.height;
+
+                    pointer_event(event) => {
+                        if event.kind == PointerEventKind.down {
+                            let rx = Math.min(Math.max(0, Math.floor(self.mouse_x / 16px)), 31);
+                            let ry = Math.min(Math.max(0, Math.floor(self.mouse_y / 16px)), 15);
+                            root.character_clicked(rx + ry * 32);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

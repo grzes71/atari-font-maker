@@ -1,0 +1,101 @@
+import { Button } from "std-widgets.slint";
+
+export component Toolbar inherits Rectangle {
+    height: 36px;
+    background: #333333;
+
+    in property <bool> can_undo: false;
+    in property <bool> can_redo: false;
+    in property <int> active_mode: 0;
+
+    callback new_clicked();
+    callback open_clicked();
+    callback save_clicked();
+    callback export_font_clicked();
+    callback export_view_clicked();
+    callback tileset_clicked();
+    callback preferences_clicked();
+    callback undo_clicked();
+    callback redo_clicked();
+    callback mode_selected(int);
+
+    HorizontalLayout {
+        padding_left: 10px;
+        padding_right: 10px;
+        spacing: 6px;
+        alignment: start;
+
+        Button {
+            text: "New";
+            clicked => { root.new_clicked(); }
+        }
+        Button {
+            text: "Open";
+            clicked => { root.open_clicked(); }
+        }
+        Button {
+            text: "Save";
+            clicked => { root.save_clicked(); }
+        }
+
+        Rectangle {
+            width: 1px;
+            background: #555555;
+        }
+
+        Button {
+            text: "Undo";
+            enabled: root.can_undo;
+            clicked => { root.undo_clicked(); }
+        }
+        Button {
+            text: "Redo";
+            enabled: root.can_redo;
+            clicked => { root.redo_clicked(); }
+        }
+
+        Rectangle {
+            width: 1px;
+            background: #555555;
+        }
+
+        Button {
+            text: "Mono";
+            clicked => { root.mode_selected(0); }
+        }
+        Button {
+            text: "Mode 4";
+            clicked => { root.mode_selected(1); }
+        }
+        Button {
+            text: "Mode 5";
+            clicked => { root.mode_selected(2); }
+        }
+        Button {
+            text: "Mode 10";
+            clicked => { root.mode_selected(3); }
+        }
+
+        Rectangle {
+            width: 1px;
+            background: #555555;
+        }
+
+        Button {
+            text: "Export Font";
+            clicked => { root.export_font_clicked(); }
+        }
+        Button {
+            text: "Export View";
+            clicked => { root.export_view_clicked(); }
+        }
+        Button {
+            text: "TileSet";
+            clicked => { root.tileset_clicked(); }
+        }
+        Button {
+            text: "Preferences";
+            clicked => { root.preferences_clicked(); }
+        }
+    }
+}

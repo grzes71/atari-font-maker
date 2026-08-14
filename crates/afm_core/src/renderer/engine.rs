@@ -66,6 +66,21 @@ impl FontRenderer {
         self.rebuild_palette();
     }
 
+    /// Get cached 10 color registers as [B, G, R, A].
+    pub fn cached_colors(&self) -> &[[u8; 4]; NUM_COLORS] {
+        &self.cached_colors
+    }
+
+    /// Get Mode 4/5 colors (0-3 + inverted color 3) as [B, G, R, A].
+    pub fn mode4_colors(&self) -> &[[u8; 4]; 5] {
+        &self.mode4_colors
+    }
+
+    /// Get Mode 10 colors (0-15) as [B, G, R, A].
+    pub fn mode10_colors(&self) -> &[[u8; 4]; 16] {
+        &self.mode10_colors
+    }
+
     /// Recompute cached BGRA color tables matching legacy C# `RebuildPalette`.
     fn rebuild_palette(&mut self) {
         for (i, &reg_idx) in self.color_registers.iter().enumerate() {

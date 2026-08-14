@@ -1,0 +1,300 @@
+export component ConfigurationModal inherits Rectangle {
+    in property <bool> is_open: false;
+    in property <int> compressor_id: 0; // 0=ZX0, 1=ZX1, 2=ZX2, 3=apultra
+    in property <bool> export_view_remember: false;
+    in property <bool> import_view_remember: false;
+    in property <string> config_status_text: "Configuration is loaded from FontMaker.json";
+
+    callback close_clicked();
+    callback save_clicked(int, bool, bool);
+    callback reset_defaults_clicked();
+    callback set_compressor(int);
+    callback toggle_export_remember(bool);
+    callback toggle_import_remember(bool);
+
+    visible: root.is_open;
+    background: #00000088;
+
+    // Modal Window Container
+    Rectangle {
+        width: 520px;
+        height: 380px;
+        background: #252526;
+        border-color: #007acc;
+        border-width: 2px;
+        border-radius: 6px;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #000000aa;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Title Bar
+            HorizontalLayout {
+                Text {
+                    text: "Preferences & Configuration";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                TouchArea {
+                    width: 28px;
+                    height: 24px;
+                    clicked => { root.close_clicked(); }
+                    Rectangle {
+                        background: parent.has-hover ? #e81123 : #333333;
+                        border-radius: 3px;
+                        Text {
+                            text: "✕";
+                            color: #ffffff;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #3e3e42; }
+
+            // Compressor Selection Group
+            Rectangle {
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+                height: 90px;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "Default Exporter Compression Algorithm:";
+                        color: #dcdcaa;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        // ZX0
+                        TouchArea {
+                            clicked => { root.set_compressor(0); }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Rectangle {
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 8px;
+                                    border-color: #555555;
+                                    border-width: 1px;
+                                    background: root.compressor_id == 0 ? #007acc : #2d2d30;
+                                }
+                                Text { text: "ZX0"; color: #ffffff; font-size: 11px; vertical-alignment: center; }
+                            }
+                        }
+
+                        // ZX1
+                        TouchArea {
+                            clicked => { root.set_compressor(1); }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Rectangle {
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 8px;
+                                    border-color: #555555;
+                                    border-width: 1px;
+                                    background: root.compressor_id == 1 ? #007acc : #2d2d30;
+                                }
+                                Text { text: "ZX1"; color: #ffffff; font-size: 11px; vertical-alignment: center; }
+                            }
+                        }
+
+                        // ZX2
+                        TouchArea {
+                            clicked => { root.set_compressor(2); }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Rectangle {
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 8px;
+                                    border-color: #555555;
+                                    border-width: 1px;
+                                    background: root.compressor_id == 2 ? #007acc : #2d2d30;
+                                }
+                                Text { text: "ZX2"; color: #ffffff; font-size: 11px; vertical-alignment: center; }
+                            }
+                        }
+
+                        // apultra
+                        TouchArea {
+                            clicked => { root.set_compressor(3); }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                Rectangle {
+                                    width: 16px;
+                                    height: 16px;
+                                    border-radius: 8px;
+                                    border-color: #555555;
+                                    border-width: 1px;
+                                    background: root.compressor_id == 3 ? #007acc : #2d2d30;
+                                }
+                                Text { text: "apultra"; color: #ffffff; font-size: 11px; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Exporter & Importer Preferences Group
+            Rectangle {
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+                height: 90px;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "Persistence & Exporter Defaults:";
+                        color: #dcdcaa;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+
+                    // Export Remember Checkbox
+                    TouchArea {
+                        clicked => { root.toggle_export_remember(!root.export_view_remember); }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                width: 16px;
+                                height: 16px;
+                                border-color: #555555;
+                                border-width: 1px;
+                                border-radius: 3px;
+                                background: root.export_view_remember ? #007acc : #2d2d30;
+                                Text {
+                                    text: root.export_view_remember ? "✓" : "";
+                                    color: #ffffff;
+                                    font-size: 11px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Text { text: "Remember Export View dialog region & format settings"; color: #cccccc; font-size: 11px; vertical-alignment: center; }
+                        }
+                    }
+
+                    // Import Remember Checkbox
+                    TouchArea {
+                        clicked => { root.toggle_import_remember(!root.import_view_remember); }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                width: 16px;
+                                height: 16px;
+                                border-color: #555555;
+                                border-width: 1px;
+                                border-radius: 3px;
+                                background: root.import_view_remember ? #007acc : #2d2d30;
+                                Text {
+                                    text: root.import_view_remember ? "✓" : "";
+                                    color: #ffffff;
+                                    font-size: 11px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            Text { text: "Remember Import View dialog dimensions & skip settings"; color: #cccccc; font-size: 11px; vertical-alignment: center; }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: root.config_status_text;
+                color: #888888;
+                font-size: 10px;
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            // Action Buttons
+            HorizontalLayout {
+                spacing: 10px;
+
+                TouchArea {
+                    width: 130px;
+                    height: 28px;
+                    clicked => { root.reset_defaults_clicked(); }
+                    Rectangle {
+                        background: parent.has-hover ? #d7ba7d : #3a3d41;
+                        border-color: #555555;
+                        border-width: 1px;
+                        border-radius: 3px;
+                        Text {
+                            text: "↺ Reset Defaults";
+                            color: parent.background == #d7ba7d ? #000000 : #ffffff;
+                            font-size: 11px;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                TouchArea {
+                    width: 90px;
+                    height: 28px;
+                    clicked => { root.close_clicked(); }
+                    Rectangle {
+                        background: parent.has-hover ? #555555 : #3a3d41;
+                        border-color: #555555;
+                        border-width: 1px;
+                        border-radius: 3px;
+                        Text {
+                            text: "Cancel";
+                            color: #ffffff;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                TouchArea {
+                    width: 110px;
+                    height: 28px;
+                    clicked => {
+                        root.save_clicked(root.compressor_id, root.export_view_remember, root.import_view_remember);
+                    }
+                    Rectangle {
+                        background: parent.has-hover ? #1f8ad2 : #007acc;
+                        border-radius: 3px;
+                        Text {
+                            text: "Save & Close";
+                            color: #ffffff;
+                            font-size: 11px;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,175 @@
+import { Button } from "std-widgets.slint";
+
+export component PaletteBar inherits Rectangle {
+    height: 38px;
+    background: #222222;
+    border_width: 1px;
+    border_color: #383838;
+
+    in property <[color]> register_colors;
+    in property <int> selected_reg: 1;
+    in property <int> active_mode: 0;
+
+    callback register_clicked(int);
+    callback open_palette_dialog();
+
+    HorizontalLayout {
+        padding_left: 12px;
+        padding_right: 12px;
+        spacing: 8px;
+        alignment: start;
+
+        Text {
+            text: "Registers:";
+            color: #aaaaaa;
+            font_size: 11px;
+            font_weight: 700;
+            vertical_alignment: center;
+        }
+
+        // 0: LUM
+        Rectangle {
+            width: 54px;
+            height: 24px;
+            background: root.register_colors[0];
+            border_width: root.selected_reg == 0 ? 2px : 1px;
+            border_color: root.selected_reg == 0 ? #ffffff : #555555;
+            y: 7px;
+
+            Text {
+                text: "0: LUM";
+                color: #ffffff;
+                font_size: 10px;
+                font_weight: 700;
+                horizontal_alignment: center;
+                vertical_alignment: center;
+            }
+
+            TouchArea {
+                clicked => { root.register_clicked(0); }
+            }
+        }
+
+        // 1: BAK
+        Rectangle {
+            width: 54px;
+            height: 24px;
+            background: root.register_colors[1];
+            border_width: root.selected_reg == 1 ? 2px : 1px;
+            border_color: root.selected_reg == 1 ? #ffffff : #555555;
+            y: 7px;
+
+            Text {
+                text: "1: BAK";
+                color: #ffffff;
+                font_size: 10px;
+                font_weight: 700;
+                horizontal_alignment: center;
+                vertical_alignment: center;
+            }
+
+            TouchArea {
+                clicked => { root.register_clicked(1); }
+            }
+        }
+
+        // 2: PF0
+        Rectangle {
+            width: 54px;
+            height: 24px;
+            background: root.register_colors[2];
+            border_width: root.selected_reg == 2 ? 2px : 1px;
+            border_color: root.selected_reg == 2 ? #ffffff : #555555;
+            y: 7px;
+
+            Text {
+                text: "2: PF0";
+                color: #ffffff;
+                font_size: 10px;
+                font_weight: 700;
+                horizontal_alignment: center;
+                vertical_alignment: center;
+            }
+
+            TouchArea {
+                clicked => { root.register_clicked(2); }
+            }
+        }
+
+        // 3: PF1
+        Rectangle {
+            width: 54px;
+            height: 24px;
+            background: root.register_colors[3];
+            border_width: root.selected_reg == 3 ? 2px : 1px;
+            border_color: root.selected_reg == 3 ? #ffffff : #555555;
+            y: 7px;
+
+            Text {
+                text: "3: PF1";
+                color: #ffffff;
+                font_size: 10px;
+                font_weight: 700;
+                horizontal_alignment: center;
+                vertical_alignment: center;
+            }
+
+            TouchArea {
+                clicked => { root.register_clicked(3); }
+            }
+        }
+
+        // 4: PF2
+        Rectangle {
+            width: 54px;
+            height: 24px;
+            background: root.register_colors[4];
+            border_width: root.selected_reg == 4 ? 2px : 1px;
+            border_color: root.selected_reg == 4 ? #ffffff : #555555;
+            y: 7px;
+
+            Text {
+                text: "4: PF2";
+                color: #ffffff;
+                font_size: 10px;
+                font_weight: 700;
+                horizontal_alignment: center;
+                vertical_alignment: center;
+            }
+
+            TouchArea {
+                clicked => { root.register_clicked(4); }
+            }
+        }
+
+        // 5: PF3
+        Rectangle {
+            width: 54px;
+            height: 24px;
+            background: root.register_colors[5];
+            border_width: root.selected_reg == 5 ? 2px : 1px;
+            border_color: root.selected_reg == 5 ? #ffffff : #555555;
+            y: 7px;
+
+            Text {
+                text: "5: PF3";
+                color: #ffffff;
+                font_size: 10px;
+                font_weight: 700;
+                horizontal_alignment: center;
+                vertical_alignment: center;
+            }
+
+            TouchArea {
+                clicked => { root.register_clicked(5); }
+            }
+        }
+
+        Rectangle { width: 15px; }
+
+        Button {
+            text: "🎨 Atari Color Picker";
+            clicked => { root.open_palette_dialog(); }
+        }
+    }
+}

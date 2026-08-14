@@ -163,3 +163,58 @@ fn test_render_one_character_parity_mode10() {
         "Incremental render_one_character produced different output than render_all_fonts in Mode 10!"
     );
 }
+
+#[test]
+fn test_atlas_coordinate_mappings_and_boundaries() {
+    // 1. Selector grid mapping roundtrip
+    for char_idx in 0..512 {
+        let (rx, ry) = FontAtlasBuffer::char_index_to_selector_grid(char_idx);
+        assert!(rx < 32);
+        assert!(ry < 16);
+        let reconstructed = FontAtlasBuffer::selector_grid_to_char_index(rx, ry);
+        assert_eq!(reconstructed, char_idx);
+    }
+
+    // 2. Atlas bounding box mapping
+    // Character 0: top-left of bank 0 mono -> (0, 0, 16, 16)
+    let (x, y, w, h) = FontAtlasBuffer::char_to_atlas_rect(0, 0, false);
+    assert_eq!((x, y, w, h), (0, 0, 16, 16));
+
+    // Character 511 (last in bank pair): bottom-right of bank 1 mono -> (31*16=496, 15*16=240, 16, 16)
+    let (x, y, w, h) = FontAtlasBuffer::char_to_atlas_rect(511, 0, false);
+    assert_eq!((x, y, w, h), (496, 240, 16, 16));
+
+    // Bank 3&4 Color: base Y = 512 + 256 = 768
+    let (x, y, w, h) = FontAtlasBuffer::char_to_atlas_rect(0, 1, true);
+    assert_eq!((x, y, w, h), (0, 768, 16, 16));
+
+    // 3. Atlas point to char mapping
+    let (bank, char_idx, is_color) = FontAtlasBuffer::atlas_point_to_char(0, 0);
+    assert_eq!((bank, char_idx, is_color), (0, 0, false));
+
+    let (bank, char_idx, is_color) = FontAtlasBuffer::atlas_point_to_char(511, 255);
+    assert_eq!((bank, char_idx, is_color), (0, 511, false));
+
+    let (bank, char_idx, is_color) = FontAtlasBuffer::atlas_point_to_char(0, 768);
+    assert_eq!((bank, char_idx, is_color), (1, 0, true));
+}
+
+#[test]
+fn test_extract_selector_slice_rgba() {
+    let (fonts, renderer) = create_standard_test_setup();
+    let mut buffer = FontAtlasBuffer::new();
+    renderer.render_all_fonts(&fonts, RenderColorMode::Mono, &mut buffer);
+
+    let mut slice = vec![0u8; 512 * 256 * 4];
+    buffer.extract_selector_slice_rgba(0, false, &mut slice);
+
+    // Verify non-zero content extracted and alpha is 255
+    let mut has_non_zero = false;
+    for chunk in slice.chunks_exact(4) {
+        if chunk[0] > 0 || chunk[1] > 0 || chunk[2] > 0 {
+            has_non_zero = true;
+        }
+        assert_eq!(chunk[3], 255);
+    }
+    assert!(has_non_zero);
+}

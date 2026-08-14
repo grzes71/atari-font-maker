@@ -1,0 +1,38 @@
+export component StatusBar inherits Rectangle {
+    height: 24px;
+    background: #1c1c1c;
+    border_width: 1px;
+    border_color: #333333;
+
+    in property <string> message: "Ready";
+    in property <string> font_info: "Font 1 (1024 B)";
+    in property <string> zoom_info: "100%";
+
+    HorizontalLayout {
+        padding_left: 8px;
+        padding_right: 8px;
+        spacing: 12px;
+
+        Text {
+            text: root.message;
+            color: #00d2ff;
+            font_size: 11px;
+            vertical_alignment: center;
+            horizontal_stretch: 1;
+        }
+
+        Text {
+            text: root.font_info;
+            color: #888888;
+            font_size: 11px;
+            vertical_alignment: center;
+        }
+
+        Text {
+            text: root.zoom_info;
+            color: #888888;
+            font_size: 11px;
+            vertical_alignment: center;
+        }
+    }
+}

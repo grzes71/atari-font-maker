@@ -1,0 +1,564 @@
+export component TileSetModal inherits Rectangle {
+    in-out property <bool> is_open: false;
+    in-out property <int> selected_tile_nr: 0;
+    in-out property <int> tileset_scroll_offset: 0;
+    in-out property <int> selected_tile_char: 0;
+    in-out property <int> selected_tile_font_nr: 0;
+    in-out property <bool> show_grid: true;
+    in-out property <bool> can_undo: false;
+    in-out property <bool> can_redo: false;
+    in-out property <[int]> current_tile_cells: [];
+    in-out property <[int]> current_tile_line_fonts: [1, 1, 1, 1, 1, 1, 1, 1];
+    in-out property <[string]> tile_strip_labels: ["Tile: 0", "Tile: 1", "Tile: 2", "Tile: 3", "Tile: 4", "Tile: 5", "Tile: 6", "Tile: 7"];
+
+    callback close();
+    callback select_tile_clicked(int);
+    callback tile_cell_clicked(int, int, int); // x, y, button (1=LMB, 2=RMB)
+    callback line_font_clicked(int, bool); // line, backward
+    callback rotate_left();
+    callback rotate_right();
+    callback mirror_h();
+    callback mirror_v();
+    callback shift_left();
+    callback shift_right();
+    callback shift_up();
+    callback shift_down();
+    callback clear_tile();
+    callback undo();
+    callback redo();
+    callback copy_tile();
+    callback paste_tile();
+    callback use_tile();
+    callback prev_tile(bool);
+    callback next_tile(bool);
+    callback scroll_offset_changed(int);
+    callback font_nr_prev();
+    callback font_nr_next();
+    callback font_char_clicked(int);
+    callback toggle_grid(bool);
+    callback load_tile();
+    callback save_tile();
+    callback load_tileset();
+    callback save_tileset();
+    callback new_tileset();
+
+    visible: root.is_open;
+    background: #000000aa;
+
+    TouchArea {
+        // Blocks clicks to background
+    }
+
+    dialog_box := Rectangle {
+        width: 960px;
+        height: 640px;
+        background: #252526;
+        border-color: #555555;
+        border-width: 2px;
+        border-radius: 6px;
+
+        VerticalLayout {
+            padding: 12px;
+            spacing: 8px;
+
+            // Header
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "TileSet Editor & Tile Library";
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                TouchArea {
+                    width: 28px;
+                    height: 24px;
+                    clicked => { root.close(); }
+                    Rectangle {
+                        background: parent.has-hover ? #c42b1c : #333333;
+                        border-radius: 4px;
+                        Text {
+                            text: "✕";
+                            color: #ffffff;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            // Top Section: Tile Strip Library (8 visible tiles)
+            Rectangle {
+                height: 120px;
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+
+                VerticalLayout {
+                    padding: 6px;
+                    spacing: 4px;
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Tile Library (0..255):";
+                            color: #cccccc;
+                            font-size: 12px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                        TouchArea {
+                            width: 60px;
+                            height: 20px;
+                            clicked => { root.prev_tile(false); }
+                            Rectangle {
+                                background: parent.has-hover ? #444444 : #2d2d30;
+                                border-radius: 3px;
+                                Text { text: "◀ Prev"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                            }
+                        }
+                        TouchArea {
+                            width: 60px;
+                            height: 20px;
+                            clicked => { root.next_tile(false); }
+                            Rectangle {
+                                background: parent.has-hover ? #444444 : #2d2d30;
+                                border-radius: 3px;
+                                Text { text: "Next ▶"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                            }
+                        }
+                        TouchArea {
+                            width: 80px;
+                            height: 20px;
+                            clicked => { root.prev_tile(true); }
+                            Rectangle {
+                                background: parent.has-hover ? #444444 : #2d2d30;
+                                border-radius: 3px;
+                                Text { text: "◀ Valid"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                            }
+                        }
+                        TouchArea {
+                            width: 80px;
+                            height: 20px;
+                            clicked => { root.next_tile(true); }
+                            Rectangle {
+                                background: parent.has-hover ? #444444 : #2d2d30;
+                                border-radius: 3px;
+                                Text { text: "Valid ▶"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                            }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
+                        Text {
+                            text: "Active: #" + root.selected_tile_nr;
+                            color: #4ec9b0;
+                            font-size: 12px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // 8 Tile Cards
+                    HorizontalLayout {
+                        spacing: 6px;
+                        for i in 8 : tile_card := Rectangle {
+                            property <int> tile_idx: root.tileset_scroll_offset + i;
+                            property <bool> is_sel: self.tile_idx == root.selected_tile_nr;
+                            horizontal-stretch: 1;
+                            background: self.is_sel ? #094771 : #2a2a2a;
+                            border-color: self.is_sel ? #007acc : #3e3e42;
+                            border-width: self.is_sel ? 2px : 1px;
+                            border-radius: 4px;
+
+                            TouchArea {
+                                clicked => { root.select_tile_clicked(tile_card.tile_idx); }
+                                double-clicked => { root.use_tile(); }
+                            }
+
+                            VerticalLayout {
+                                padding: 2px;
+                                Text {
+                                    text: "Tile " + tile_card.tile_idx;
+                                    font-size: 10px;
+                                    color: tile_card.is_sel ? #ffffff : #888888;
+                                    horizontal-alignment: center;
+                                }
+                                Rectangle {
+                                    height: 48px;
+                                    background: #181818;
+                                    border-radius: 2px;
+                                    Text {
+                                        text: "8×8";
+                                        font-size: 10px;
+                                        color: #555555;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Middle Section: 8x8 Tile Editor + Line Fonts + Character Palette + Tool Buttons
+            HorizontalLayout {
+                spacing: 12px;
+                vertical-stretch: 1;
+
+                // Left: 8x8 Tile Grid & Line Fonts
+                Rectangle {
+                    width: 320px;
+                    background: #1e1e1e;
+                    border-color: #3e3e42;
+                    border-width: 1px;
+                    border-radius: 4px;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+
+                        HorizontalLayout {
+                            Text {
+                                text: "Tile #" + root.selected_tile_nr + " (8×8 Cells):";
+                                color: #ffffff;
+                                font-size: 12px;
+                                font-weight: 700;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            TouchArea {
+                                width: 90px;
+                                height: 18px;
+                                clicked => { root.toggle_grid(!root.show_grid); }
+                                HorizontalLayout {
+                                    spacing: 4px;
+                                    Rectangle {
+                                        width: 14px;
+                                        height: 14px;
+                                        border-color: #555555;
+                                        border-width: 1px;
+                                        background: root.show_grid ? #007acc : #333333;
+                                    }
+                                    Text { text: "Grid"; color: #cccccc; font-size: 10px; vertical-alignment: center; }
+                                }
+                            }
+                        }
+
+                        // 8 rows: Line Font indicator + 8 cells
+                        VerticalLayout {
+                            spacing: 2px;
+                            for y in 8 : HorizontalLayout {
+                                spacing: 2px;
+                                height: 28px;
+
+                                // Line Font Button (1..4)
+                                TouchArea {
+                                    width: 24px;
+                                    clicked => { root.line_font_clicked(y, false); }
+                                    Rectangle {
+                                        background: parent.has-hover ? #007acc : #3a3d41;
+                                        border-color: #555555;
+                                        border-width: 1px;
+                                        border-radius: 2px;
+                                        Text {
+                                            text: root.current_tile_line_fonts[y];
+                                            font-size: 11px;
+                                            font-weight: 700;
+                                            color: #ffffff;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                // 8 Cells
+                                for x in 8 : cell_rect := Rectangle {
+                                    property <int> cell_idx: y * 8 + x;
+                                    property <int> char_val: root.current_tile_cells[self.cell_idx];
+                                    property <bool> is_empty: self.char_val < 0;
+
+                                    horizontal-stretch: 1;
+                                    background: self.is_empty ? #2d2d30 : #111111;
+                                    border-color: root.show_grid ? #3e3e42 : transparent;
+                                    border-width: 1px;
+
+                                    TouchArea {
+                                        clicked => {
+                                            root.tile_cell_clicked(x, y, 1);
+                                        }
+                                    }
+
+                                    Text {
+                                        text: cell_rect.is_empty ? "·" : cell_rect.char_val;
+                                        font-size: 10px;
+                                        font-family: "Monospace";
+                                        color: cell_rect.is_empty ? #555555 : #4ec9b0;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Center: Character Selection Palette & Bank Switcher
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: #1e1e1e;
+                    border-color: #3e3e42;
+                    border-width: 1px;
+                    border-radius: 4px;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: "Character Palette (Bank " + (root.selected_tile_font_nr + 1) + "):";
+                                color: #ffffff;
+                                font-size: 12px;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                            }
+                            TouchArea {
+                                width: 24px;
+                                height: 20px;
+                                clicked => { root.font_nr_prev(); }
+                                Rectangle {
+                                    background: parent.has-hover ? #444444 : #2d2d30;
+                                    border-radius: 2px;
+                                    Text { text: "◀"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                            }
+                            Text {
+                                text: "Font " + (root.selected_tile_font_nr + 1);
+                                color: #dcdcaa;
+                                font-size: 11px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                            TouchArea {
+                                width: 24px;
+                                height: 20px;
+                                clicked => { root.font_nr_next(); }
+                                Rectangle {
+                                    background: parent.has-hover ? #444444 : #2d2d30;
+                                    border-radius: 2px;
+                                    Text { text: "▶"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            Text {
+                                text: "Selected: #" + root.selected_tile_char;
+                                color: #ce9178;
+                                font-size: 11px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // 8x32 Character Matrix (Compact overview)
+                        Rectangle {
+                            vertical-stretch: 1;
+                            background: #111111;
+                            border-color: #333333;
+                            border-width: 1px;
+
+                            VerticalLayout {
+                                spacing: 1px;
+                                padding: 2px;
+                                for row in 8 : HorizontalLayout {
+                                    spacing: 1px;
+                                    for col in 16 : char_box := Rectangle {
+                                        property <int> char_nr: row * 16 + col;
+                                        property <bool> is_cur: self.char_nr == root.selected_tile_char;
+
+                                        horizontal-stretch: 1;
+                                        background: self.is_cur ? #007acc : (char_touch.has-hover ? #333333 : #1e1e1e);
+                                        border-color: self.is_cur ? #ffffff : transparent;
+                                        border-width: self.is_cur ? 1px : 0px;
+
+                                        char_touch := TouchArea {
+                                            clicked => { root.font_char_clicked(char_box.char_nr); }
+                                        }
+
+                                        Text {
+                                            text: char_box.char_nr;
+                                            font-size: 9px;
+                                            color: char_box.is_cur ? #ffffff : #9cdcfe;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Right: Action & Transformation Buttons
+                Rectangle {
+                    width: 160px;
+                    background: #1e1e1e;
+                    border-color: #3e3e42;
+                    border-width: 1px;
+                    border-radius: 4px;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 4px;
+
+                        Text { text: "Transforms:"; color: #cccccc; font-size: 11px; font-weight: 700; }
+
+                        HorizontalLayout {
+                            spacing: 4px;
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.rotate_left(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "↶ Rot L"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.rotate_right(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "Rot R ↷"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 4px;
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.mirror_h(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "⇄ Mirror H"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.mirror_v(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "⇅ Mirror V"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 4px;
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.shift_left(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "◀ Shift L"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.shift_right(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "Shift R ▶"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 4px;
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.shift_up(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "▲ Shift U"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.shift_down(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "▼ Shift D"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                        }
+
+                        Rectangle { height: 1px; background: #333333; }
+                        Text { text: "Clipboard & History:"; color: #cccccc; font-size: 11px; font-weight: 700; }
+
+                        HorizontalLayout {
+                            spacing: 4px;
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.undo(); }
+                                Rectangle { background: (parent.has-hover && root.can_undo) ? #444444 : #2d2d30; border-radius: 3px; opacity: root.can_undo ? 1.0 : 0.4; Text { text: "Undo"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.redo(); }
+                                Rectangle { background: (parent.has-hover && root.can_redo) ? #444444 : #2d2d30; border-radius: 3px; opacity: root.can_redo ? 1.0 : 0.4; Text { text: "Redo"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 4px;
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.copy_tile(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "Copy"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                            TouchArea {
+                                horizontal-stretch: 1; height: 24px;
+                                clicked => { root.paste_tile(); }
+                                Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "Paste"; color: #ffffff; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                            }
+                        }
+
+                        TouchArea {
+                            height: 24px;
+                            clicked => { root.clear_tile(); }
+                            Rectangle { background: parent.has-hover ? #5a1d1d : #3a1d1d; border-radius: 3px; Text { text: "Clear Tile"; color: #ff8888; font-size: 10px; horizontal-alignment: center; vertical-alignment: center; } }
+                        }
+
+                        TouchArea {
+                            height: 28px;
+                            clicked => { root.use_tile(); }
+                            Rectangle { background: parent.has-hover ? #0e639c : #007acc; border-radius: 3px; Text { text: "★ Use in View"; color: #ffffff; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; } }
+                        }
+
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+            }
+
+            // Bottom Section: File Actions & Close
+            HorizontalLayout {
+                spacing: 8px;
+                height: 28px;
+
+                TouchArea {
+                    width: 100px;
+                    clicked => { root.new_tileset(); }
+                    Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "New TileSet"; color: #ffffff; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                }
+                TouchArea {
+                    width: 100px;
+                    clicked => { root.load_tileset(); }
+                    Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "Load TileSet"; color: #ffffff; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                }
+                TouchArea {
+                    width: 100px;
+                    clicked => { root.save_tileset(); }
+                    Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "Save TileSet"; color: #ffffff; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                }
+                TouchArea {
+                    width: 90px;
+                    clicked => { root.load_tile(); }
+                    Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "Load Tile"; color: #ffffff; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                }
+                TouchArea {
+                    width: 90px;
+                    clicked => { root.save_tile(); }
+                    Rectangle { background: parent.has-hover ? #444444 : #2d2d30; border-radius: 3px; Text { text: "Save Tile"; color: #ffffff; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; } }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                TouchArea {
+                    width: 80px;
+                    clicked => { root.close(); }
+                    Rectangle { background: parent.has-hover ? #444444 : #333333; border-radius: 3px; Text { text: "Close"; color: #ffffff; font-size: 11px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; } }
+                }
+            }
+        }
+    }
+}

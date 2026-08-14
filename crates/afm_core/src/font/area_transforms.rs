@@ -20,6 +20,15 @@ impl PixelMatrix {
         }
     }
 
+    /// Return the horizontal pixel shift step (in 1-bit units) for the given color mode.
+    pub fn pixel_step_for_mode(mode: RenderColorMode) -> usize {
+        match mode {
+            RenderColorMode::Mono => 1,
+            RenderColorMode::Mode4 | RenderColorMode::Mode5 => 2,
+            RenderColorMode::Mode10 => 4,
+        }
+    }
+
     /// Convert a linear slice of glyph bytes (8 bytes per character, row by row) into a 2D pixel matrix.
     pub fn from_glyph_bytes(glyphs: &[u8], width_chars: usize, height_chars: usize) -> Self {
         let pixel_width = width_chars * 8;

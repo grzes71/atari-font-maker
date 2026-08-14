@@ -1,0 +1,172 @@
+import { Button } from "std-widgets.slint";
+
+export component ViewActionsModal inherits Rectangle {
+    in property <bool> is_open: false;
+    in property <int> fill_char_code: 0;
+    in property <int> replace_from_char: 0;
+    in property <int> replace_to_char: 0;
+
+    callback close_clicked();
+    callback clear_view_clicked();
+    callback fill_view_clicked(int);
+    callback replace_chars_clicked(int, int);
+    callback shift_view_up();
+    callback shift_view_down();
+    callback shift_view_left();
+    callback shift_view_right();
+
+    visible: root.is_open;
+    background: #00000088;
+
+    Rectangle {
+        width: 480px;
+        height: 380px;
+        background: #252526;
+        border-color: #007acc;
+        border-width: 2px;
+        border-radius: 6px;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #000000aa;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Title Bar
+            HorizontalLayout {
+                Text {
+                    text: "🛠️ Atari View Actions & Operations";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                TouchArea {
+                    width: 28px;
+                    height: 24px;
+                    clicked => { root.close_clicked(); }
+                    Rectangle {
+                        background: parent.has-hover ? #e81123 : #333333;
+                        border-radius: 3px;
+                        Text {
+                            text: "✕";
+                            color: #ffffff;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #3e3e42; }
+
+            // Clear & Fill Section
+            Rectangle {
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+                height: 80px;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "Clear & Fill Operations (Active Page):";
+                        color: #dcdcaa;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+
+                        Button {
+                            text: "🧹 Clear Entire View (0)";
+                            clicked => { root.clear_view_clicked(); }
+                        }
+
+                        Button {
+                            text: "🎨 Fill View with Char $" + (root.fill_char_code < 16 ? "0" : "") + (root.fill_char_code);
+                            clicked => { root.fill_view_clicked(root.fill_char_code); }
+                        }
+                    }
+                }
+            }
+
+            // Character Replacement Section
+            Rectangle {
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+                height: 80px;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "Replace Character in View:";
+                        color: #dcdcaa;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+
+                        Button {
+                            text: "🔄 Replace Selected Char with Space";
+                            clicked => { root.replace_chars_clicked(root.replace_from_char, 0); }
+                        }
+                    }
+                }
+            }
+
+            // Area Shifting Section
+            Rectangle {
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+                height: 80px;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "Shift Entire View (40×26):";
+                        color: #dcdcaa;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Button { text: "⬅ Shift Left"; clicked => { root.shift_view_left(); } }
+                        Button { text: "➡ Shift Right"; clicked => { root.shift_view_right(); } }
+                        Button { text: "⬆ Shift Up"; clicked => { root.shift_view_up(); } }
+                        Button { text: "⬇ Shift Down"; clicked => { root.shift_view_down(); } }
+                    }
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            // Bottom Actions Bar
+            HorizontalLayout {
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    text: "Close";
+                    clicked => { root.close_clicked(); }
+                }
+            }
+        }
+    }
+}

@@ -147,6 +147,7 @@ name = "afm_gui"
 version = "0.1.0"
 dependencies = [
  "afm_core",
+ "hex",
  "slint",
  "slint-build",
 ]

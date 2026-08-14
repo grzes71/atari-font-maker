@@ -1,0 +1,133 @@
+import { Button, ComboBox, CheckBox } from "std-widgets.slint";
+
+export component ExportViewModal inherits Rectangle {
+    in property <bool> is_open: false;
+    in property <string> preview_text: "";
+    in property <int> selected_format: 0;
+    in property <int> selected_data_type: 0;
+    in property <bool> transpose_flag: false;
+
+    callback format_changed(int);
+    callback data_type_changed(int);
+    callback transpose_toggled(bool);
+    callback export_clicked();
+    callback copy_clipboard_clicked();
+    callback close_clicked();
+
+    if root.is_open : Rectangle {
+        background: #000000bb;
+
+        TouchArea {} // Block click-through
+
+        Rectangle {
+            width: 580px;
+            height: 520px;
+            background: #242424;
+            border_width: 2px;
+            border_color: #00d2ff;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #000000cc;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 10px;
+
+                // Header
+                HorizontalLayout {
+                    Text {
+                        text: "💾 Export Atari Screen View";
+                        color: #00d2ff;
+                        font_size: 14px;
+                        font_weight: 700;
+                        vertical_alignment: center;
+                    }
+                    Rectangle { horizontal_stretch: 1; }
+                    Button {
+                        text: "✕";
+                        clicked => { root.close_clicked(); }
+                    }
+                }
+
+                // Controls Row
+                HorizontalLayout {
+                    spacing: 12px;
+                    alignment: start;
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "Format:"; color: #aaaaaa; font_size: 11px; }
+                        ComboBox {
+                            model: ["Assembler", "Action!", "Atari BASIC", "FastBasic", "MADS .dta", "C Data Array", "Mad-Pascal Array"];
+                            current_index: root.selected_format;
+                            selected(val) => {
+                                root.format_changed(self.current_index);
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "Data Type:"; color: #aaaaaa; font_size: 11px; }
+                        ComboBox {
+                            model: ["Decimal", "Hexadecimal"];
+                            current_index: root.selected_data_type;
+                            selected(val) => {
+                                root.data_type_changed(self.current_index);
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+                        alignment: end;
+                        CheckBox {
+                            text: "Transpose (Columns first)";
+                            checked: root.transpose_flag;
+                            toggled => {
+                                root.transpose_toggled(self.checked);
+                            }
+                        }
+                    }
+                }
+
+                // Text Memo Preview
+                Rectangle {
+                    vertical_stretch: 1;
+                    background: #151515;
+                    border_width: 1px;
+                    border_color: #444444;
+
+                    TextInput {
+                        text: root.preview_text;
+                        color: #00ff66;
+                        font_size: 11px;
+                        read_only: true;
+                        wrap: word_wrap;
+                    }
+                }
+
+                // Action Buttons
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: end;
+
+                    Button {
+                        text: "📋 Copy to Clipboard";
+                        clicked => { root.copy_clipboard_clicked(); }
+                    }
+
+                    Button {
+                        text: "💾 Save to File";
+                        primary: true;
+                        clicked => { root.export_clicked(); }
+                    }
+
+                    Button {
+                        text: "Close";
+                        clicked => { root.close_clicked(); }
+                    }
+                }
+            }
+        }
+    }
+}

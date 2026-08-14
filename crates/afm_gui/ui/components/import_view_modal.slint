@@ -1,0 +1,111 @@
+import { Button } from "std-widgets.slint";
+
+export component ImportViewModal inherits Rectangle {
+    in property <bool> is_open: false;
+    in property <string> import_status_info: "Import binary data into active 40×26 View";
+    in property <int> import_line_width: 40;
+    in property <int> import_skip_x: 0;
+    in property <int> import_skip_y: 0;
+    in property <int> import_width: 40;
+    in property <int> import_height: 26;
+
+    callback close_clicked();
+    callback import_clicked();
+
+    visible: root.is_open;
+    background: #00000088;
+
+    Rectangle {
+        width: 460px;
+        height: 300px;
+        background: #252526;
+        border-color: #007acc;
+        border-width: 2px;
+        border-radius: 6px;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #000000aa;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Title Bar
+            HorizontalLayout {
+                Text {
+                    text: "📥 Import View from Binary";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                TouchArea {
+                    width: 28px;
+                    height: 24px;
+                    clicked => { root.close_clicked(); }
+                    Rectangle {
+                        background: parent.has-hover ? #e81123 : #333333;
+                        border-radius: 3px;
+                        Text {
+                            text: "✕";
+                            color: #ffffff;
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+
+            Rectangle { height: 1px; background: #3e3e42; }
+
+            // Status / Settings info
+            Rectangle {
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 6px;
+                    Text {
+                        text: "Import Target: Active Page (40×26 Characters)";
+                        color: #dcdcaa;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+                    Text {
+                        text: "Default: 40 bytes per line, skip (0,0), dimensions 40×26.";
+                        color: #cccccc;
+                        font-size: 11px;
+                    }
+                    Text {
+                        text: root.import_status_info;
+                        color: #4ec9b0;
+                        font-size: 10px;
+                    }
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            // Action Buttons
+            HorizontalLayout {
+                spacing: 10px;
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Button {
+                    text: "Cancel";
+                    clicked => { root.close_clicked(); }
+                }
+
+                Button {
+                    text: "📥 Import Raw File...";
+                    clicked => { root.import_clicked(); }
+                }
+            }
+        }
+    }
+}

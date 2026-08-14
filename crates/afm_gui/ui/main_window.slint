@@ -1,14 +1,503 @@
-export component MainWindow inherits Window {
-    title: "Atari FontMaker";
-    min-width: 400px;
-    min-height: 200px;
+import { MenuBar } from "components/menu_bar.slint";
+import { Toolbar } from "components/toolbar.slint";
+import { CharEditorPanel } from "components/char_editor_panel.slint";
+import { FontSelectorPanel } from "components/font_selector_panel.slint";
+import { ViewEditorPanel } from "components/view_editor_panel.slint";
+import { PaletteBar } from "components/palette_bar.slint";
+import { StatusBar } from "components/status_bar.slint";
+import { ColorSelectorModal } from "components/color_selector_modal.slint";
+import { ExportFontModal } from "components/export_font_modal.slint";
+import { ExportViewModal } from "components/export_view_modal.slint";
+import { TileSetModal } from "components/tileset_modal.slint";
+import { ConfigurationModal } from "components/configuration_modal.slint";
+import { FontAnalysisModal } from "components/font_analysis_modal.slint";
+import { ViewActionsModal } from "components/view_actions_modal.slint";
+import { ImportViewModal } from "components/import_view_modal.slint";
 
-    VerticalLayout {
-        alignment: center;
-        Text {
-            text: "Atari FontMaker";
-            font-size: 24px;
-            horizontal-alignment: center;
+export component MainWindow inherits Window {
+    in-out property <string> window_title: "Atari FontMaker [Rust + Slint]";
+    title: root.window_title;
+    min_width: 1200px;
+    min_height: 700px;
+    preferred_width: 1480px;
+    preferred_height: 780px;
+    background: #1e1e1e;
+
+    // State properties exposed from Rust Controller
+    in property <string> status_text: "Ready";
+    in property <int> selected_char_index: 0;
+    in property <int> selected_bank_pair: 0;
+    in property <int> active_page_index: 0;
+    in property <int> active_color_mode: 0;
+    in property <int> selected_draw_color: 2;
+    in property <bool> can_undo: false;
+    in property <bool> can_redo: false;
+    in property <string> char_hex_label: "$00";
+    in property <string> char_dec_label: "#0";
+    in property <string> char_ascii_label: "' '";
+    in property <string> active_font_name: "Default Font";
+    in property <[color]> char_pixel_colors;
+    in property <image> font_selector_image;
+
+    // View Editor properties
+    in property <image> view_editor_image;
+    in property <int> selected_view_x: 0;
+    in property <int> selected_view_y: 0;
+    in property <string> view_page_info: "Page 1 of 1";
+    in property <bool> can_view_undo: false;
+    in property <bool> can_view_redo: false;
+
+    // Palette properties
+    in property <[color]> palette_reg_colors;
+    in property <[color]> atari_128_colors;
+    in property <int> selected_color_reg: 1;
+    in property <bool> show_color_selector_modal: false;
+
+    // Exporter properties
+    in property <bool> show_export_font_modal: false;
+    in property <bool> show_export_view_modal: false;
+    in property <string> export_font_preview: "";
+    in property <string> export_view_preview: "";
+    in property <int> export_font_format: 0;
+    in property <int> export_font_data_type: 0;
+    in property <int> export_font_range: 0;
+    in property <int> export_view_format: 0;
+    in property <int> export_view_data_type: 0;
+    in property <bool> export_view_transpose: false;
+
+    // TileSet properties (Phase 19)
+    in property <bool> show_tileset_modal: false;
+    in property <int> tileset_selected_nr: 0;
+    in property <int> tileset_scroll_pos: 0;
+    in property <int> tileset_char_idx: 0;
+    in property <int> tileset_font_nr: 0;
+    in property <bool> tileset_grid_visible: true;
+    in property <bool> tileset_can_undo: false;
+    in property <bool> tileset_can_redo: false;
+    in property <[int]> tileset_cells;
+    in property <[int]> tileset_line_fonts;
+
+    // Preferences & Configuration properties (Phase 20)
+    in property <bool> show_config_modal: false;
+    in property <int> config_compressor: 0;
+    in property <bool> config_export_remember: false;
+    in property <bool> config_import_remember: false;
+
+    // Analysis Modal properties (Final Audit Parity)
+    in property <bool> show_analysis_modal: false;
+    in property <string> analysis_summary: "Unused: Font 1: 0, Font 2: 0, Font 3: 0, Font 4: 0";
+    in property <string> analysis_details: "Select a glyph to view usage";
+
+    // View Actions & Import Modal properties (Final Audit Parity)
+    in property <bool> show_view_actions_modal: false;
+    in property <bool> show_import_view_modal: false;
+    in property <string> import_view_status: "Ready to import raw binary data";
+
+    // Callbacks to Rust Controller
+    callback select_character(int);
+    callback switch_bank_pair(int);
+    callback change_color_mode(int);
+    callback select_draw_color(int);
+    callback undo_clicked();
+    callback redo_clicked();
+    callback new_project_clicked();
+    callback open_project_clicked();
+    callback save_project_clicked();
+    callback export_font_clicked();
+    callback export_view_clicked();
+
+    // Character Editor Canvas callbacks
+    callback char_pixel_pressed(int, int, int);
+    callback char_pixel_dragged(int, int);
+    callback char_pixel_released();
+
+    // Single Glyph Transformation callbacks
+    callback shift_char_left();
+    callback shift_char_right();
+    callback shift_char_up();
+    callback shift_char_down();
+    callback rotate_char_left();
+    callback rotate_char_right();
+    callback mirror_char_horizontal();
+    callback mirror_char_vertical();
+    callback invert_char();
+    callback clear_char();
+
+    // Bank & Area Operation callbacks
+    callback shift_bank_left();
+    callback shift_bank_right();
+    callback delete_char_and_shift();
+    callback insert_space_and_shift();
+
+    // Keyboard and Focus callbacks (Phase 20)
+    callback key_pressed(string);
+    callback key_down(string, bool, bool);
+    callback select_previous_character();
+    callback select_next_character();
+    callback escape_pressed();
+    callback toggle_megacopy();
+    callback copy_to_clipboard();
+    callback paste_from_clipboard();
+    callback switch_page(int);
+
+    // View Editor callbacks
+    callback view_cell_clicked(int, int, int);
+    callback view_cell_dragged(int, int);
+    callback view_cell_released();
+    callback view_prev_page();
+    callback view_next_page();
+    callback view_add_page();
+    callback view_delete_page();
+    callback view_undo_clicked();
+    callback view_redo_clicked();
+
+    // Palette callbacks
+    callback palette_reg_clicked(int);
+    callback open_color_selector();
+    callback close_color_selector();
+    callback palette_color_chosen(int);
+
+    // Exporter Callbacks
+    callback open_export_font();
+    callback close_export_font();
+    callback export_font_format_changed(int);
+    callback export_font_data_type_changed(int);
+    callback export_font_range_changed(int);
+    callback export_font_copy_clipboard();
+    callback export_font_do_save();
+
+    callback open_export_view();
+    callback close_export_view();
+    callback export_view_format_changed(int);
+    callback export_view_data_type_changed(int);
+    callback export_view_transpose_toggled(bool);
+    callback export_view_copy_clipboard();
+    callback export_view_do_save();
+
+    // TileSet Callbacks (Phase 19)
+    callback open_tileset();
+    callback close_tileset();
+    callback tileset_select_tile(int);
+    callback tileset_cell_click(int, int, int);
+    callback tileset_line_font(int, bool);
+    callback tileset_rot_l();
+    callback tileset_rot_r();
+    callback tileset_mir_h();
+    callback tileset_mir_v();
+    callback tileset_sh_l();
+    callback tileset_sh_r();
+    callback tileset_sh_u();
+    callback tileset_sh_d();
+    callback tileset_clear();
+    callback tileset_undo();
+    callback tileset_redo();
+    callback tileset_copy();
+    callback tileset_paste();
+    callback tileset_use();
+    callback tileset_prev(bool);
+    callback tileset_next(bool);
+    callback tileset_scroll(int);
+    callback tileset_font_prev();
+    callback tileset_font_next();
+    callback tileset_font_char(int);
+    callback tileset_toggle_grid(bool);
+    callback tileset_load_tile();
+    callback tileset_save_tile();
+    callback tileset_load_set();
+    callback tileset_save_set();
+    callback tileset_new_set();
+
+    // Configuration Callbacks (Phase 20)
+    callback open_config();
+    callback close_config();
+    callback save_config(int, bool, bool);
+    callback reset_config_defaults();
+    callback set_config_compressor(int);
+    callback toggle_config_export_remember(bool);
+    callback toggle_config_import_remember(bool);
+
+    // Analysis Callbacks (Final Audit Parity)
+    callback open_analysis();
+    callback close_analysis();
+    callback refresh_analysis();
+
+    // View Actions Callbacks (Final Audit Parity)
+    callback open_view_actions();
+    callback close_view_actions();
+    callback clear_entire_view();
+    callback fill_entire_view(int);
+    callback replace_chars_in_view(int, int);
+    callback shift_entire_view_up();
+    callback shift_entire_view_down();
+    callback shift_entire_view_left();
+    callback shift_entire_view_right();
+
+    // Import View Callbacks (Final Audit Parity)
+    callback open_import_view();
+    callback close_import_view();
+    callback do_import_view();
+
+    forward-focus: key-handler;
+
+    key-handler := FocusScope {
+        key-pressed(event) => {
+            root.key_down(event.text, event.modifiers.control, event.modifiers.shift);
+            accept
+        }
+
+        VerticalLayout {
+            spacing: 0;
+
+            // 1. Menu Bar
+            MenuBar {
+                new_clicked => { root.new_project_clicked(); }
+                open_project_clicked => { root.open_project_clicked(); }
+                save_project_clicked => { root.save_project_clicked(); }
+                export_font_clicked => { root.open_export_font(); }
+                export_view_clicked => { root.open_export_view(); }
+                import_view_clicked => { root.open_import_view(); }
+                view_actions_clicked => { root.open_view_actions(); }
+                analysis_clicked => { root.open_analysis(); }
+                tileset_clicked => { root.open_tileset(); }
+                preferences_clicked => { root.open_config(); }
+                undo_clicked => { root.undo_clicked(); }
+                redo_clicked => { root.redo_clicked(); }
+            }
+
+            // 2. Toolbar
+            Toolbar {
+                can_undo: root.can_undo;
+                can_redo: root.can_redo;
+                active_mode: root.active_color_mode;
+                new_clicked => { root.new_project_clicked(); }
+                open_clicked => { root.open_project_clicked(); }
+                save_clicked => { root.save_project_clicked(); }
+                export_font_clicked => { root.open_export_font(); }
+                export_view_clicked => { root.open_export_view(); }
+                tileset_clicked => { root.open_tileset(); }
+                preferences_clicked => { root.open_config(); }
+                undo_clicked => { root.undo_clicked(); }
+                redo_clicked => { root.redo_clicked(); }
+                mode_selected(mode) => { root.change_color_mode(mode); }
+            }
+
+            // 3. Main Workspace Layout
+            HorizontalLayout {
+                padding: 4px;
+                spacing: 8px;
+
+                // Left Panel: Character Editor (Grid + Details + Buttons)
+                CharEditorPanel {
+                    width: 250px;
+                    hex_label: root.char_hex_label;
+                    dec_label: root.char_dec_label;
+                    ascii_label: root.char_ascii_label;
+                    active_mode: root.active_color_mode;
+                    selected_color: root.selected_draw_color;
+                    pixel_colors: root.char_pixel_colors;
+
+                    pixel_clicked(x, y, btn) => { root.char_pixel_pressed(x, y, btn); }
+                    pixel_dragged(x, y) => { root.char_pixel_dragged(x, y); }
+                    pixel_released => { root.char_pixel_released(); }
+                    select_draw_color(col) => { root.select_draw_color(col); }
+
+                    shift_left => { root.shift_char_left(); }
+                    shift_right => { root.shift_char_right(); }
+                    shift_up => { root.shift_char_up(); }
+                    shift_down => { root.shift_char_down(); }
+                    rotate_left => { root.rotate_char_left(); }
+                    rotate_right => { root.rotate_char_right(); }
+                    mirror_horizontal => { root.mirror_char_horizontal(); }
+                    mirror_vertical => { root.mirror_char_vertical(); }
+                    invert => { root.invert_char(); }
+                    clear => { root.clear_char(); }
+                }
+
+                // Middle Panel: Font Selector (512x128 Atlas View)
+                FontSelectorPanel {
+                    width: 530px;
+                    selected_bank_pair: root.selected_bank_pair;
+                    selected_char: root.selected_char_index;
+                    font_title: root.active_font_name;
+                    selector_image: root.font_selector_image;
+                    character_clicked(idx) => {
+                        root.select_character(idx);
+                    }
+                    bank_toggle_clicked => {
+                        root.switch_bank_pair(root.selected_bank_pair == 0 ? 1 : 0);
+                    }
+                }
+
+                // Right Panel: Atari View Editor (640x416 Viewport)
+                ViewEditorPanel {
+                    horizontal_stretch: 1;
+                    view_image: root.view_editor_image;
+                    selected_x: root.selected_view_x;
+                    selected_y: root.selected_view_y;
+                    page_info: root.view_page_info;
+                    can_view_undo: root.can_view_undo;
+                    can_view_redo: root.can_view_redo;
+
+                    cell_clicked(x, y, btn) => { root.view_cell_clicked(x, y, btn); }
+                    cell_dragged(x, y) => { root.view_cell_dragged(x, y); }
+                    cell_released => { root.view_cell_released(); }
+                    prev_page => { root.view_prev_page(); }
+                    next_page => { root.view_next_page(); }
+                    add_page => { root.view_add_page(); }
+                    delete_page => { root.view_delete_page(); }
+                    view_undo_clicked => { root.view_undo_clicked(); }
+                    view_redo_clicked => { root.view_redo_clicked(); }
+                }
+            }
+
+            // 4. Palette Registers Bar
+            PaletteBar {
+                register_colors: root.palette_reg_colors;
+                selected_reg: root.selected_color_reg;
+                active_mode: root.active_color_mode;
+                register_clicked(reg) => { root.palette_reg_clicked(reg); }
+                open_palette_dialog => { root.open_color_selector(); }
+            }
+
+            // 5. Status Bar
+            StatusBar {
+                message: root.status_text;
+                font_info: root.active_font_name;
+            }
+        }
+
+        // Modals
+        ColorSelectorModal {
+            is_open: root.show_color_selector_modal;
+            palette_colors: root.atari_128_colors;
+            active_reg: root.selected_color_reg;
+            color_picked(code) => { root.palette_color_chosen(code); }
+            close_clicked => { root.close_color_selector(); }
+        }
+
+        ExportFontModal {
+            is_open: root.show_export_font_modal;
+            preview_text: root.export_font_preview;
+            selected_format: root.export_font_format;
+            selected_data_type: root.export_font_data_type;
+            selected_font_range: root.export_font_range;
+
+            format_changed(f) => { root.export_font_format_changed(f); }
+            data_type_changed(d) => { root.export_font_data_type_changed(d); }
+            font_range_changed(r) => { root.export_font_range_changed(r); }
+            export_clicked => { root.export_font_do_save(); }
+            copy_clipboard_clicked => { root.export_font_copy_clipboard(); }
+            close_clicked => { root.close_export_font(); }
+        }
+
+        ExportViewModal {
+            is_open: root.show_export_view_modal;
+            preview_text: root.export_view_preview;
+            selected_format: root.export_view_format;
+            selected_data_type: root.export_view_data_type;
+            transpose_flag: root.export_view_transpose;
+
+            format_changed(f) => { root.export_view_format_changed(f); }
+            data_type_changed(d) => { root.export_view_data_type_changed(d); }
+            transpose_toggled(t) => { root.export_view_transpose_toggled(t); }
+            export_clicked => { root.export_view_do_save(); }
+            copy_clipboard_clicked => { root.export_view_copy_clipboard(); }
+            close_clicked => { root.close_export_view(); }
+        }
+
+        TileSetModal {
+            is_open: root.show_tileset_modal;
+            selected_tile_nr: root.tileset_selected_nr;
+            tileset_scroll_offset: root.tileset_scroll_pos;
+            selected_tile_char: root.tileset_char_idx;
+            selected_tile_font_nr: root.tileset_font_nr;
+            show_grid: root.tileset_grid_visible;
+            can_undo: root.tileset_can_undo;
+            can_redo: root.tileset_can_redo;
+            current_tile_cells: root.tileset_cells;
+            current_tile_line_fonts: root.tileset_line_fonts;
+
+            close => { root.close_tileset(); }
+            select_tile_clicked(idx) => { root.tileset_select_tile(idx); }
+            tile_cell_clicked(x, y, btn) => { root.tileset_cell_click(x, y, btn); }
+            line_font_clicked(l, b) => { root.tileset_line_font(l, b); }
+            rotate_left => { root.tileset_rot_l(); }
+            rotate_right => { root.tileset_rot_r(); }
+            mirror_h => { root.tileset_mir_h(); }
+            mirror_v => { root.tileset_mir_v(); }
+            shift_left => { root.tileset_sh_l(); }
+            shift_right => { root.tileset_sh_r(); }
+            shift_up => { root.tileset_sh_u(); }
+            shift_down => { root.tileset_sh_d(); }
+            clear_tile => { root.tileset_clear(); }
+            undo => { root.tileset_undo(); }
+            redo => { root.tileset_redo(); }
+            copy_tile => { root.tileset_copy(); }
+            paste_tile => { root.tileset_paste(); }
+            use_tile => { root.tileset_use(); }
+            prev_tile(v) => { root.tileset_prev(v); }
+            next_tile(v) => { root.tileset_next(v); }
+            scroll_offset_changed(o) => { root.tileset_scroll(o); }
+            font_nr_prev => { root.tileset_font_prev(); }
+            font_nr_next => { root.tileset_font_next(); }
+            font_char_clicked(c) => { root.tileset_font_char(c); }
+            toggle_grid(g) => { root.tileset_toggle_grid(g); }
+            load_tile => { root.tileset_load_tile(); }
+            save_tile => { root.tileset_save_tile(); }
+            load_tileset => { root.tileset_load_set(); }
+            save_tileset => { root.tileset_save_set(); }
+            new_tileset => { root.tileset_new_set(); }
+        }
+
+        ConfigurationModal {
+            is_open: root.show_config_modal;
+            compressor_id: root.config_compressor;
+            export_view_remember: root.config_export_remember;
+            import_view_remember: root.config_import_remember;
+
+            close_clicked => { root.close_config(); }
+            save_clicked(comp, exp_rem, imp_rem) => {
+                root.save_config(comp, exp_rem, imp_rem);
+            }
+            reset_defaults_clicked => { root.reset_config_defaults(); }
+            set_compressor(comp) => { root.set_config_compressor(comp); }
+            toggle_export_remember(rem) => { root.toggle_config_export_remember(rem); }
+            toggle_import_remember(rem) => { root.toggle_config_import_remember(rem); }
+        }
+
+        FontAnalysisModal {
+            is_open: root.show_analysis_modal;
+            summary_text: root.analysis_summary;
+            details_text: root.analysis_details;
+            selected_char_idx: root.selected_char_index;
+
+            close_clicked => { root.close_analysis(); }
+            refresh_clicked => { root.refresh_analysis(); }
+            select_char_clicked(idx) => { root.select_character(idx); }
+        }
+
+        ViewActionsModal {
+            is_open: root.show_view_actions_modal;
+            fill_char_code: Math.mod(root.selected_char_index, 256);
+            replace_from_char: Math.mod(root.selected_char_index, 256);
+            replace_to_char: 0;
+
+            close_clicked => { root.close_view_actions(); }
+            clear_view_clicked => { root.clear_entire_view(); }
+            fill_view_clicked(ch) => { root.fill_entire_view(ch); }
+            replace_chars_clicked(from_ch, to_ch) => { root.replace_chars_in_view(from_ch, to_ch); }
+            shift_view_up => { root.shift_entire_view_up(); }
+            shift_view_down => { root.shift_entire_view_down(); }
+            shift_view_left => { root.shift_entire_view_left(); }
+            shift_view_right => { root.shift_entire_view_right(); }
+        }
+
+        ImportViewModal {
+            is_open: root.show_import_view_modal;
+            import_status_info: root.import_view_status;
+
+            close_clicked => { root.close_import_view(); }
+            import_clicked => { root.do_import_view(); }
         }
     }
 }
