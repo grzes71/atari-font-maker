@@ -1,0 +1,11 @@
+[package]
+name = "afm_gui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+afm_core = { path = "../afm_core" }
+slint = "1.9"
+
+[build-dependencies]
+slint-build = "1.9"

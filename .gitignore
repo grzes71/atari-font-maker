@@ -1,0 +1,20 @@
+# Rust
+/target/
+
+# .NET / Visual Studio
+**/bin/
+**/obj/
+*.user
+*.suo
+.vs/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# c#
+atari-fontmaker-master/
