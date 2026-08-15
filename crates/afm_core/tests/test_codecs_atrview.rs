@@ -130,3 +130,48 @@ fn test_atrview_malformed_inputs() {
     let res2 = AtrViewProject::from_json_str(bad_hex_json);
     assert!(matches!(res2, Err(AtrViewFormatError::Hex(_))));
 }
+
+#[test]
+fn test_pre2007_legacy_32byte_rows_are_left_aligned_and_zero_padded() {
+    // C# `LoadViewFile`: for `version < 2007` the screen is parsed with
+    // `viewWidth = 32` into a freshly zeroed `ForcedResize(width, height)` buffer.
+    // The 32 bytes of each row are left-aligned; columns 32..39 stay zero.
+    let mut chars = String::new();
+    for y in 0..26 {
+        for x in 0..32 {
+            chars.push_str(&format!("{:02X}", (y * 32 + x) % 256));
+        }
+    }
+
+    let json = format!(
+        r#"{{"Version":"2006","ColoredGfx":"0","Width":40,"Height":26,"FortyBytes":"0","Chars":"{chars}","Lines":"{}","Colors":"0E0028CA9446","Data":""}}"#,
+        "01".repeat(26)
+    );
+
+    let project = AtrViewProject::from_json_str(&json).expect("load legacy v2006 project");
+
+    assert_eq!(project.version, "2006");
+    assert_eq!(project.forty_bytes, "0");
+    assert_eq!(project.width, 40);
+    assert_eq!(project.height, 26);
+    assert_eq!(project.view_bytes.len(), 40 * 26);
+
+    for y in 0..26 {
+        // Left 32 columns carry the legacy row data.
+        for x in 0..32 {
+            assert_eq!(
+                project.view_bytes[y * 40 + x],
+                ((y * 32 + x) % 256) as u8,
+                "legacy byte mismatch at ({x},{y})"
+            );
+        }
+        // Right 8 columns are zero-padded.
+        for x in 32..40 {
+            assert_eq!(
+                project.view_bytes[y * 40 + x],
+                0,
+                "right padding must be zero at ({x},{y})"
+            );
+        }
+    }
+}

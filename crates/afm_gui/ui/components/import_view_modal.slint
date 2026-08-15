@@ -1,23 +1,23 @@
-import { Button } from "std-widgets.slint";
+import { Button, SpinBox } from "std-widgets.slint";
 
 export component ImportViewModal inherits Rectangle {
     in property <bool> is_open: false;
     in property <string> import_status_info: "Import binary data into active 40×26 View";
-    in property <int> import_line_width: 40;
-    in property <int> import_skip_x: 0;
-    in property <int> import_skip_y: 0;
-    in property <int> import_width: 40;
-    in property <int> import_height: 26;
+    in-out property <int> import_line_width: 40;
+    in-out property <int> import_skip_x: 0;
+    in-out property <int> import_skip_y: 0;
+    in-out property <int> import_width: 40;
+    in-out property <int> import_height: 26;
 
     callback close_clicked();
-    callback import_clicked();
+    callback import_clicked(int, int, int, int, int);
 
     visible: root.is_open;
     background: #00000088;
 
     Rectangle {
-        width: 460px;
-        height: 300px;
+        width: 520px;
+        height: 540px;
         background: #252526;
         border-color: #007acc;
         border-width: 2px;
@@ -80,6 +80,70 @@ export component ImportViewModal inherits Rectangle {
                         color: #cccccc;
                         font-size: 11px;
                     }
+                    GridLayout {
+                        spacing: 6px;
+                        Row {
+                            Text {
+                                text: "Line width:";
+                                color: #cccccc;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+                            SpinBox {
+                                minimum: 1;
+                                maximum: 1024;
+                                value <=> root.import_line_width;
+                            }
+                            Text {
+                                text: "Skip X:";
+                                color: #cccccc;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+                            SpinBox {
+                                minimum: 0;
+                                maximum: 1024;
+                                value <=> root.import_skip_x;
+                            }
+                        }
+                        Row {
+                            Text {
+                                text: "Skip Y:";
+                                color: #cccccc;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+                            SpinBox {
+                                minimum: 0;
+                                maximum: 1024;
+                                value <=> root.import_skip_y;
+                            }
+                            Text {
+                                text: "Width:";
+                                color: #cccccc;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+                            SpinBox {
+                                minimum: 1;
+                                maximum: 40;
+                                value <=> root.import_width;
+                            }
+                        }
+                        Row {
+                            Text {
+                                text: "Height:";
+                                color: #cccccc;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                            }
+                            SpinBox {
+                                minimum: 1;
+                                maximum: 26;
+                                value <=> root.import_height;
+                            }
+                        }
+                    }
                     Text {
                         text: root.import_status_info;
                         color: #4ec9b0;
@@ -103,7 +167,9 @@ export component ImportViewModal inherits Rectangle {
 
                 Button {
                     text: "📥 Import Raw File...";
-                    clicked => { root.import_clicked(); }
+                    clicked => {
+                        root.import_clicked(root.import_line_width, root.import_skip_x, root.import_skip_y, root.import_width, root.import_height);
+                    }
                 }
             }
         }

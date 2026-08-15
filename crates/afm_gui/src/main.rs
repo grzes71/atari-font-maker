@@ -1,12 +1,6 @@
-//! Atari FontMaker - Rust + Slint GUI Application Shell.
+//! Atari FontMaker - Rust + Slint GUI Application Binary.
 
-slint::include_modules!();
-
-pub mod app;
-pub mod controller;
-pub mod state;
-
-use app::AfmApp;
+use afm_gui::AfmApp;
 
 fn main() -> Result<(), slint::PlatformError> {
     let app = AfmApp::new()?;

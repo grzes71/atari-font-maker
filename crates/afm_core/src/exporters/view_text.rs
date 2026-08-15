@@ -1,7 +1,45 @@
-//! Text exporters for Atari View screen memory (ASM, Action!, Atari BASIC, FastBasic, MADS, C, Mad Pascal).
+//! Text and binary exporters for Atari View screen memory (ASM, Action!, Atari BASIC, FastBasic, MADS, C, Mad Pascal).
 
 use super::types::{DataType, FormatType, ViewExportRegion};
 use std::fmt::Write;
+
+/// Extract raw view bytes from a rectangular region (row-major, or column-major
+/// when `transpose` is set), matching C# `ExportViewWindow.SaveAsBinaryData`.
+pub fn export_view_binary(
+    view_bytes: &[u8],
+    view_width: usize,
+    view_height: usize,
+    region: ViewExportRegion,
+    transpose: bool,
+) -> Vec<u8> {
+    let ViewExportRegion { rx, ry, rw, rh } = region;
+
+    let mut data = Vec::with_capacity(rw * rh);
+
+    if !transpose {
+        for y in ry..ry + rh {
+            for x in rx..rx + rw {
+                if x < view_width && y < view_height {
+                    data.push(view_bytes[y * view_width + x]);
+                } else {
+                    data.push(0);
+                }
+            }
+        }
+    } else {
+        for x in rx..rx + rw {
+            for y in ry..ry + rh {
+                if x < view_width && y < view_height {
+                    data.push(view_bytes[y * view_width + x]);
+                } else {
+                    data.push(0);
+                }
+            }
+        }
+    }
+
+    data
+}
 
 /// Export view characters from a rectangular region into source code text.
 pub fn export_view_as_text(

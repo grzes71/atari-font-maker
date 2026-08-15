@@ -144,7 +144,7 @@ impl Default for AtrViewProject {
             height: 26,
             view_bytes: vec![0u8; 40 * 26],
             line_fonts: vec![1u8; 26],
-            colors: [0x00, 0x28, 0xCA, 0x46, 0x98, 0x1A, 0x76, 0x54, 0x32, 0x00],
+            colors: [0x0E, 0x00, 0x28, 0xCA, 0x94, 0x46, 0x16, 0x1A, 0xB4, 0xBA],
             font_names: [
                 "Default.fnt".to_string(),
                 "Default.fnt".to_string(),
@@ -202,17 +202,43 @@ impl AtrViewProject {
 
         // Parse view characters
         let view_bytes = if !dto.chars.is_empty() {
-            hex::decode(&dto.chars)?
+            let decoded = hex::decode(&dto.chars)?;
+            if version_int < 2007 {
+                // Legacy files (< 2007) store 32-byte-wide screen rows regardless of the
+                // declared view width. C# `LoadViewFile` parses these with `viewWidth = 32`
+                // into a freshly zeroed `ForcedResize(width, height)` buffer, so the screen
+                // is left-aligned and right-padded with zeros.
+                let legacy_width = 32usize;
+                let mut buf = vec![0u8; dto.width * dto.height];
+                for y in 0..dto.height {
+                    for x in 0..legacy_width.min(dto.width) {
+                        let src = y * legacy_width + x;
+                        let dst = y * dto.width + x;
+                        if src < decoded.len() && dst < buf.len() {
+                            buf[dst] = decoded[src];
+                        }
+                    }
+                }
+                buf
+            } else {
+                decoded
+            }
         } else {
             vec![0u8; dto.width * dto.height]
         };
 
         // Parse line fonts
-        let line_fonts = if !dto.lines.is_empty() {
+        let mut line_fonts = if !dto.lines.is_empty() {
             hex::decode(&dto.lines)?
         } else {
             vec![1u8; dto.height]
         };
+        // Match C# `AtariView.Load`: old files may contain 0, which means font 1.
+        for font in line_fonts.iter_mut() {
+            if *font == 0 {
+                *font = 1;
+            }
+        }
 
         // Parse and fix color registers
         let fixed_colors_hex = fix_color_hex_string(&dto.colors);

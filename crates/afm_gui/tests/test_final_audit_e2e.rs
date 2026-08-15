@@ -191,7 +191,7 @@ fn test_e2e_analysis_and_view_actions() {
     assert_eq!(state.project.view_bytes[1039], 0x55);
 
     // Replace char 0x55 with 0xAA
-    state.replace_chars_in_view(0x55, 0xAA);
+    state.replace_chars_in_view(0x55, 0xAA, [true, true, true, true]);
     assert_eq!(state.project.view_bytes[0], 0xAA);
     assert_eq!(state.project.view_bytes[1039], 0xAA);
 

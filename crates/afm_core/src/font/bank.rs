@@ -27,6 +27,20 @@ impl FontBankSet {
         }
     }
 
+    /// Create a font bank set pre-loaded with the default Atari font in all four
+    /// banks, matching the C# application startup (`LoadViewFile(null, true)`
+    /// loads `Default.fnt` into banks 1..4).
+    pub fn with_default_font() -> Self {
+        const DEFAULT_FONT: &[u8; FONT_BANK_SIZE] =
+            include_bytes!("../../../../tests/fixtures/projects/Default.fnt");
+        let mut set = Self::new();
+        for bank in 0..4 {
+            let start = bank * FONT_BANK_SIZE;
+            set.bytes[start..start + FONT_BANK_SIZE].copy_from_slice(DEFAULT_FONT);
+        }
+        set
+    }
+
     /// Create a font bank set from existing 4096 bytes.
     pub const fn from_bytes(bytes: [u8; TOTAL_FONTS_SIZE]) -> Self {
         Self { bytes }
@@ -229,6 +243,22 @@ impl FontBankSet {
     pub fn clear_character(&mut self, character_index: usize, on_bank2: bool) {
         let offset = Self::character_offset(character_index, on_bank2);
         self.set_glyph_at(offset, &transforms::clear());
+    }
+
+    /// Swap two colors in a character glyph in Mode 4/5 (2-bit), matching C# `ColorSwitch2Bit`.
+    pub fn recolor_2bit(&mut self, character_index: usize, on_bank2: bool, col1: u8, col2: u8) {
+        let offset = Self::character_offset(character_index, on_bank2);
+        let mut glyph = self.get_glyph_at(offset);
+        glyph.recolor_2bit(col1, col2);
+        self.set_glyph_at(offset, &glyph);
+    }
+
+    /// Swap two colors in a character glyph in Mode 10 (4-bit), matching C# `ColorSwitch4Bit`.
+    pub fn recolor_4bit(&mut self, character_index: usize, on_bank2: bool, col1: u8, col2: u8) {
+        let offset = Self::character_offset(character_index, on_bank2);
+        let mut glyph = self.get_glyph_at(offset);
+        glyph.recolor_4bit(col1, col2);
+        self.set_glyph_at(offset, &glyph);
     }
 
     // Bank-level shifting and deletion operations

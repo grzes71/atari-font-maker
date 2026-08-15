@@ -11,14 +11,25 @@ export component ViewEditorPanel inherits Rectangle {
     in property <string> page_info: "Page 1 of 1";
     in property <bool> can_view_undo: false;
     in property <bool> can_view_redo: false;
+    in property <bool> megacopy_active: false;
+    in property <int> megacopy_sel_x: 0;
+    in property <int> megacopy_sel_y: 0;
+    in property <int> megacopy_sel_w: 0;
+    in property <int> megacopy_sel_h: 0;
+    in property <[int]> line_fonts;
+    in property <string> page_name: "Page 1";
 
     callback cell_clicked(int, int, int); // x: 0..39, y: 0..25, button: 0=LMB, 1=RMB
     callback cell_dragged(int, int);
     callback cell_released();
+    callback line_font_clicked(int, int, bool, bool); // line, button, control, shift
     callback prev_page();
     callback next_page();
     callback add_page();
     callback delete_page();
+    callback rename_page(string);
+    callback move_page_up();
+    callback move_page_down();
     callback view_undo_clicked();
     callback view_redo_clicked();
 
@@ -69,6 +80,22 @@ export component ViewEditorPanel inherits Rectangle {
                 clicked => { root.delete_page(); }
             }
 
+            Button {
+                text: "▲";
+                clicked => { root.move_page_up(); }
+            }
+
+            Button {
+                text: "▼";
+                clicked => { root.move_page_down(); }
+            }
+
+            TextInput {
+                text: root.page_name;
+                width: 120px;
+                accepted => { root.rename_page(self.text); }
+            }
+
             Rectangle { width: 15px; }
 
             Button {
@@ -93,8 +120,45 @@ export component ViewEditorPanel inherits Rectangle {
             }
         }
 
-        // Viewport 640x416 px representing the full Atari Screen
-        Rectangle {
+        // Font selector strip + Viewport (640x416 px) — matches C# layout
+        HorizontalLayout {
+            spacing: 0px;
+
+            // Per-line font selector (left strip) — C# pictureBoxCharacterSetSelector
+            Rectangle {
+                width: 22px;
+                height: 418px;
+                background: #2a2a2a;
+                border_width: 1px;
+                border_color: #444444;
+
+                VerticalLayout {
+                    spacing: 0px;
+                    for i in 26 : Rectangle {
+                        width: 22px;
+                        height: 16px;
+                        background: Math.mod(i, 2) == 0 ? #303030 : #262626;
+                        Text {
+                            text: root.line_fonts[i];
+                            color: #00ffaa;
+                            font_size: 11px;
+                            horizontal_alignment: center;
+                            vertical_alignment: center;
+                        }
+                        TouchArea {
+                            pointer-event(event) => {
+                                if (event.kind == PointerEventKind.down) {
+                                    let btn = (event.button == PointerEventButton.right) ? 1 : 0;
+                                    root.line_font_clicked(i, btn, event.modifiers.control, event.modifiers.shift);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Viewport 640x416 px representing the full Atari Screen
+            Rectangle {
             width: 642px;
             height: 418px;
             background: #000000;
@@ -121,6 +185,17 @@ export component ViewEditorPanel inherits Rectangle {
                 background: #ffff0033;
             }
 
+            // MegaCopy selection rubber-band overlay
+            if root.megacopy_active && root.megacopy_sel_w > 0 && root.megacopy_sel_h > 0 : Rectangle {
+                x: 1px + (root.megacopy_sel_x * 16px);
+                y: 1px + (root.megacopy_sel_y * 16px);
+                width: root.megacopy_sel_w * 16px;
+                height: root.megacopy_sel_h * 16px;
+                border_width: 2px;
+                border_color: #00ff00;
+                background: #00ff0022;
+            }
+
             TouchArea {
                 width: 640px;
                 height: 416px;
@@ -143,6 +218,7 @@ export component ViewEditorPanel inherits Rectangle {
                         root.cell_dragged(rx, ry);
                     }
                 }
+            }
             }
         }
     }

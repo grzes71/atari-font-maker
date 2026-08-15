@@ -59,6 +59,102 @@ pub fn fill_area(
     }
 }
 
+/// Direction for rectangular area circular shifts matching C# `DirectionFlags`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AreaShiftDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+/// Circularly shift bytes inside a rectangular region within a 2D View buffer.
+pub fn shift_area(
+    view_bytes: &mut [u8],
+    view_width: usize,
+    view_height: usize,
+    region: ViewExportRegion,
+    direction: AreaShiftDirection,
+) {
+    if region.rw == 0 || region.rh == 0 || region.rx >= view_width || region.ry >= view_height {
+        return;
+    }
+
+    let rx = region.rx;
+    let ry = region.ry;
+    let rw = region.rw.min(view_width - rx);
+    let rh = region.rh.min(view_height - ry);
+
+    if (direction == AreaShiftDirection::Up || direction == AreaShiftDirection::Down) && rh <= 1 {
+        return;
+    }
+    if (direction == AreaShiftDirection::Left || direction == AreaShiftDirection::Right) && rw <= 1
+    {
+        return;
+    }
+
+    let snapshot = view_bytes.to_vec();
+
+    match direction {
+        AreaShiftDirection::Up => {
+            let top_y = ry;
+            let bottom_y = ry + rh - 1;
+            // Top row moves to bottom row
+            for x in rx..(rx + rw) {
+                view_bytes[bottom_y * view_width + x] = snapshot[top_y * view_width + x];
+            }
+            // Rows from ry + 1 to ry + rh - 1 move up by 1
+            for y in (ry + 1)..=bottom_y {
+                for x in rx..(rx + rw) {
+                    view_bytes[(y - 1) * view_width + x] = snapshot[y * view_width + x];
+                }
+            }
+        }
+        AreaShiftDirection::Down => {
+            let top_y = ry;
+            let bottom_y = ry + rh - 1;
+            // Bottom row moves to top row
+            for x in rx..(rx + rw) {
+                view_bytes[top_y * view_width + x] = snapshot[bottom_y * view_width + x];
+            }
+            // Rows from ry to ry + rh - 2 move down by 1
+            for y in top_y..bottom_y {
+                for x in rx..(rx + rw) {
+                    view_bytes[(y + 1) * view_width + x] = snapshot[y * view_width + x];
+                }
+            }
+        }
+        AreaShiftDirection::Left => {
+            let left_x = rx;
+            let right_x = rx + rw - 1;
+            // Leftmost column moves to rightmost column
+            for y in ry..(ry + rh) {
+                view_bytes[y * view_width + right_x] = snapshot[y * view_width + left_x];
+            }
+            // Columns from rx + 1 to rx + rw - 1 move left by 1
+            for x in (rx + 1)..=right_x {
+                for y in ry..(ry + rh) {
+                    view_bytes[y * view_width + (x - 1)] = snapshot[y * view_width + x];
+                }
+            }
+        }
+        AreaShiftDirection::Right => {
+            let left_x = rx;
+            let right_x = rx + rw - 1;
+            // Rightmost column moves to leftmost column
+            for y in ry..(ry + rh) {
+                view_bytes[y * view_width + left_x] = snapshot[y * view_width + right_x];
+            }
+            // Columns from rx to rx + rw - 2 move right by 1
+            for x in left_x..right_x {
+                for y in ry..(ry + rh) {
+                    view_bytes[y * view_width + (x + 1)] = snapshot[y * view_width + x];
+                }
+            }
+        }
+    }
+}
+
 /// Parameters for importing raw binary data into a 2D View buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ViewImportOptions {

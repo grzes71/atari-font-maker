@@ -3,7 +3,7 @@ use std::path::Path;
 
 use afm_core::exporters::{
     DataType, FontSelection, FormatType, ViewExportRegion, export_font_as_text, export_font_bmp,
-    export_font_lst, export_view_as_text,
+    export_font_lst, export_view_as_text, export_view_binary,
 };
 use afm_core::font::bank::FontBankSet;
 use afm_core::palette::Palette;
@@ -385,4 +385,50 @@ fn test_export_view_asm_transposed_golden() {
     );
     let expected = read_fixture_str("exports/view_asm_transposed.txt");
     assert_eq!(actual, expected);
+}
+
+// ==========================================
+// 5. Binary View Exporter Tests (3 tests)
+// ==========================================
+
+#[test]
+fn test_export_view_binary_row_major() {
+    let (view, w, h) = create_sample_view_grid();
+    let actual = export_view_binary(&view, w, h, ViewExportRegion::full_standard(), false);
+    // Row-major, full 40x26 region: identical to the underlying storage.
+    assert_eq!(actual.len(), 40 * 26);
+    assert_eq!(actual.as_slice(), &view[..]);
+}
+
+#[test]
+fn test_export_view_binary_transposed() {
+    let (view, w, h) = create_sample_view_grid();
+    let actual = export_view_binary(&view, w, h, ViewExportRegion::full_standard(), true);
+    assert_eq!(actual.len(), 40 * 26);
+    // Column-major: element (x, y) -> index x * 26 + y.
+    for x in 0..40 {
+        for y in 0..26 {
+            assert_eq!(actual[x * 26 + y], view[y * 40 + x]);
+        }
+    }
+}
+
+#[test]
+fn test_export_view_binary_subregion_clamps_out_of_bounds() {
+    let view = vec![7u8; 40 * 26];
+    // Region starting at (38, 24) with size 4x4: only cells (38..40, 24..26) are valid.
+    let region = ViewExportRegion::new(38, 24, 4, 4);
+    let actual = export_view_binary(&view, 40, 26, region, false);
+    assert_eq!(actual.len(), 4 * 4);
+    // First two cells of each row are valid (x=38,39), the next two are padded zeros.
+    assert_eq!(actual[0], 7);
+    assert_eq!(actual[1], 7);
+    assert_eq!(actual[2], 0);
+    assert_eq!(actual[3], 0);
+    assert_eq!(actual[4], 7);
+    assert_eq!(actual[5], 7);
+    assert_eq!(actual[6], 0);
+    assert_eq!(actual[7], 0);
+    // Rows 3 and 4 (y=26,27) are fully out of bounds -> all zeros.
+    assert_eq!(&actual[8..16], &[0u8; 8]);
 }

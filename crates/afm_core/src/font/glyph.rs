@@ -139,6 +139,42 @@ impl GlyphBytes {
         }
         Self(bytes)
     }
+
+    /// Swap two colors in 2-bit color mode (Mode 4/5), matching C# `ColorSwitch2Bit`.
+    pub fn recolor_2bit(&mut self, col1: u8, col2: u8) {
+        if col1 == col2 {
+            return;
+        }
+        for byte_val in self.0.iter_mut() {
+            let mut pixels = Self::decode_color_2bit(*byte_val);
+            for p in pixels.iter_mut() {
+                if *p == col1 {
+                    *p = col2;
+                } else if *p == col2 {
+                    *p = col1;
+                }
+            }
+            *byte_val = Self::encode_color_2bit(&pixels);
+        }
+    }
+
+    /// Swap two colors in 4-bit color mode (Mode 10), matching C# `ColorSwitch4Bit`.
+    pub fn recolor_4bit(&mut self, col1: u8, col2: u8) {
+        if col1 == col2 {
+            return;
+        }
+        for byte_val in self.0.iter_mut() {
+            let mut pixels = Self::decode_color_4bit(*byte_val);
+            for p in pixels.iter_mut() {
+                if *p == col1 {
+                    *p = col2;
+                } else if *p == col2 {
+                    *p = col1;
+                }
+            }
+            *byte_val = Self::encode_color_4bit(&pixels);
+        }
+    }
 }
 
 /// Convert an ASCII character code to Atari internal character code.

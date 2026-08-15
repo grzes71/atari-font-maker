@@ -1,3 +1,4 @@
+import { Button, CheckBox } from "std-widgets.slint";
 import { MenuBar } from "components/menu_bar.slint";
 import { Toolbar } from "components/toolbar.slint";
 import { CharEditorPanel } from "components/char_editor_panel.slint";
@@ -13,14 +14,17 @@ import { ConfigurationModal } from "components/configuration_modal.slint";
 import { FontAnalysisModal } from "components/font_analysis_modal.slint";
 import { ViewActionsModal } from "components/view_actions_modal.slint";
 import { ImportViewModal } from "components/import_view_modal.slint";
+import { EnterTextModal } from "components/enter_text_modal.slint";
+import { ConfirmDialog } from "components/confirm_dialog.slint";
+import { FilePickerDialog } from "components/file_picker_dialog.slint";
 
 export component MainWindow inherits Window {
     in-out property <string> window_title: "Atari FontMaker [Rust + Slint]";
     title: root.window_title;
     min_width: 1200px;
-    min_height: 700px;
+    min_height: 820px;
     preferred_width: 1480px;
-    preferred_height: 780px;
+    preferred_height: 900px;
     background: #1e1e1e;
 
     // State properties exposed from Rust Controller
@@ -44,14 +48,29 @@ export component MainWindow inherits Window {
     in property <int> selected_view_x: 0;
     in property <int> selected_view_y: 0;
     in property <string> view_page_info: "Page 1 of 1";
+    in property <string> view_page_name: "Page 1";
     in property <bool> can_view_undo: false;
     in property <bool> can_view_redo: false;
+    in property <[int]> view_line_fonts;
 
-    // Palette properties
+    // MegaCopy properties & Options (Phase 21B-9 G-7)
+    in property <bool> megacopy_active: false;
+    in property <int> megacopy_sel_x: 0;
+    in property <int> megacopy_sel_y: 0;
+    in property <int> megacopy_sel_w: 0;
+    in property <int> megacopy_sel_h: 0;
+    in property <bool> megacopy_skip_char: false;
+    in property <int> megacopy_skip_char_val: 0;
+    in property <bool> megacopy_stay_in_paste_mode: false;
+    in property <int> megacopy_paste_into_font_nr: 1;
+    in property <bool> megacopy_can_paste_in_place: false;
+
+    // Palette & ColorSets properties
     in property <[color]> palette_reg_colors;
     in property <[color]> atari_128_colors;
     in property <int> selected_color_reg: 1;
     in property <bool> show_color_selector_modal: false;
+    in property <int> selected_colorset_idx: 0;
 
     // Exporter properties
     in property <bool> show_export_font_modal: false;
@@ -61,9 +80,15 @@ export component MainWindow inherits Window {
     in property <int> export_font_format: 0;
     in property <int> export_font_data_type: 0;
     in property <int> export_font_range: 0;
+    in property <bool> export_font_compress: false;
     in property <int> export_view_format: 0;
     in property <int> export_view_data_type: 0;
     in property <bool> export_view_transpose: false;
+    in property <int> export_view_from_x: 0;
+    in property <int> export_view_from_y: 0;
+    in property <int> export_view_width: 40;
+    in property <int> export_view_height: 26;
+    in property <string> export_view_dimensions_label: "(0, 0) - (40, 26) @ 1040 bytes";
 
     // TileSet properties (Phase 19)
     in property <bool> show_tileset_modal: false;
@@ -88,10 +113,42 @@ export component MainWindow inherits Window {
     in property <string> analysis_summary: "Unused: Font 1: 0, Font 2: 0, Font 3: 0, Font 4: 0";
     in property <string> analysis_details: "Select a glyph to view usage";
 
+    // Character Editor properties (WriteMode & Recolor)
+    in property <int> char_write_mode: 0;
+    in property <int> char_recolor_source: 0;
+    in property <int> char_recolor_target: 1;
+
     // View Actions & Import Modal properties (Final Audit Parity)
     in property <bool> show_view_actions_modal: false;
+    in property <int> view_actions_fill_char_val: 0;
+    in property <int> view_actions_replace_from_val: 0;
+    in property <int> view_actions_replace_to_val: 0;
+    in property <bool> view_actions_font1_filter: true;
+    in property <bool> view_actions_font2_filter: true;
+    in property <bool> view_actions_font3_filter: true;
+    in property <bool> view_actions_font4_filter: true;
+    in property <string> view_actions_area_text: "";
     in property <bool> show_import_view_modal: false;
     in property <string> import_view_status: "Ready to import raw binary data";
+
+    // Enter Text Modal properties
+    in property <bool> show_enter_text_modal: false;
+    in property <string> enter_text_val: "";
+    in property <bool> enter_text_inverse_flag: false;
+    in property <bool> enter_text_second_font_flag: false;
+
+    // Destructive-operation confirmation dialog (Phase 21C-1)
+    in property <bool> show_confirm_modal: false;
+    in property <string> confirm_title: "";
+    in property <string> confirm_message: "";
+
+    // In-window file picker (Phase 21D-1)
+    in property <bool> show_file_picker: false;
+    in property <bool> file_picker_save_mode: false;
+    in property <string> file_picker_dir: "";
+    in property <[string]> file_picker_dirs;
+    in property <[string]> file_picker_files;
+    in property <string> file_picker_filename: "project.atrview";
 
     // Callbacks to Rust Controller
     callback select_character(int);
@@ -103,6 +160,15 @@ export component MainWindow inherits Window {
     callback new_project_clicked();
     callback open_project_clicked();
     callback save_project_clicked();
+    callback save_as_clicked();
+    callback open_font(int);
+    callback save_font(int);
+    callback open_palette();
+    callback save_palette();
+    callback open_tile_dialog();
+    callback save_tile_dialog();
+    callback open_tileset_dialog();
+    callback save_tileset_dialog();
     callback export_font_clicked();
     callback export_view_clicked();
 
@@ -138,24 +204,38 @@ export component MainWindow inherits Window {
     callback toggle_megacopy();
     callback copy_to_clipboard();
     callback paste_from_clipboard();
+    callback transform_clipboard(int);
+    callback paste_into_font(int);
+    callback toggle_skip_char();
+    callback set_skip_char_value(int);
+    callback set_skip_char_from_selected();
+    callback toggle_stay_in_paste_mode();
+    callback set_paste_into_font_nr(int);
+    callback paste_in_place();
     callback switch_page(int);
 
     // View Editor callbacks
     callback view_cell_clicked(int, int, int);
     callback view_cell_dragged(int, int);
     callback view_cell_released();
+    callback view_line_font_clicked(int, int, bool, bool);
     callback view_prev_page();
     callback view_next_page();
     callback view_add_page();
     callback view_delete_page();
+    callback view_rename_page(string);
+    callback view_move_page_up();
+    callback view_move_page_down();
     callback view_undo_clicked();
     callback view_redo_clicked();
+    callback restore_default_colors();
 
     // Palette callbacks
     callback palette_reg_clicked(int);
     callback open_color_selector();
     callback close_color_selector();
     callback palette_color_chosen(int);
+    callback colorset_selected(int);
 
     // Exporter Callbacks
     callback open_export_font();
@@ -163,6 +243,7 @@ export component MainWindow inherits Window {
     callback export_font_format_changed(int);
     callback export_font_data_type_changed(int);
     callback export_font_range_changed(int);
+    callback export_font_compress_toggled(bool);
     callback export_font_copy_clipboard();
     callback export_font_do_save();
 
@@ -171,6 +252,8 @@ export component MainWindow inherits Window {
     callback export_view_format_changed(int);
     callback export_view_data_type_changed(int);
     callback export_view_transpose_toggled(bool);
+    callback export_view_region_changed(int, int, int, int);
+    callback export_view_reset_region();
     callback export_view_copy_clipboard();
     callback export_view_do_save();
 
@@ -221,21 +304,52 @@ export component MainWindow inherits Window {
     callback close_analysis();
     callback refresh_analysis();
 
-    // View Actions Callbacks (Final Audit Parity)
+    // View Actions Callbacks (Final Audit Parity & Phase 21B-7 G-5)
     callback open_view_actions();
     callback close_view_actions();
     callback clear_entire_view();
+    callback clear_selected_area();
     callback fill_entire_view(int);
-    callback replace_chars_in_view(int, int);
+    callback fill_selected_area(int);
+    callback replace_chars_in_view(int, int, bool, bool, bool, bool);
+    callback replace_chars_in_area(int, int, bool, bool, bool, bool);
     callback shift_entire_view_up();
     callback shift_entire_view_down();
     callback shift_entire_view_left();
     callback shift_entire_view_right();
+    callback shift_selected_area_up();
+    callback shift_selected_area_down();
+    callback shift_selected_area_left();
+    callback shift_selected_area_right();
+    callback set_fill_from_selected();
+    callback set_replace_from_selected();
+    callback set_replace_to_selected();
+    callback toggle_font_filter(int);
 
     // Import View Callbacks (Final Audit Parity)
     callback open_import_view();
     callback close_import_view();
-    callback do_import_view();
+    callback import_view_file(int, int, int, int, int);
+
+    // WriteMode & Recolor Callbacks (Phase 21B-6 G-4)
+    callback write_mode_changed(int);
+    callback recolor_source_changed(int);
+    callback recolor_target_changed(int);
+    callback recolor_clicked();
+
+    // Enter Text Callbacks (Phase 21B-6 G-4)
+    callback open_enter_text();
+    callback close_enter_text();
+    callback submit_enter_text(string, bool, bool);
+
+    // Destructive-operation confirmation callbacks (Phase 21C-1)
+    callback confirm_clicked();
+    callback cancel_clicked();
+
+    // In-window file picker callbacks (Phase 21D-1)
+    callback file_picker_navigate(string);
+    callback file_picker_select_file(string);
+    callback file_picker_cancel();
 
     forward-focus: key-handler;
 
@@ -253,12 +367,22 @@ export component MainWindow inherits Window {
                 new_clicked => { root.new_project_clicked(); }
                 open_project_clicked => { root.open_project_clicked(); }
                 save_project_clicked => { root.save_project_clicked(); }
+                save_as_clicked => { root.save_as_clicked(); }
+                open_font_clicked(n) => { root.open_font(n); }
+                save_font_clicked(n) => { root.save_font(n); }
+                open_palette_clicked => { root.open_palette(); }
+                save_palette_clicked => { root.save_palette(); }
+                open_tile_clicked => { root.open_tile_dialog(); }
+                save_tile_clicked => { root.save_tile_dialog(); }
+                open_tileset_clicked => { root.open_tileset_dialog(); }
+                save_tileset_clicked => { root.save_tileset_dialog(); }
                 export_font_clicked => { root.open_export_font(); }
                 export_view_clicked => { root.open_export_view(); }
                 import_view_clicked => { root.open_import_view(); }
                 view_actions_clicked => { root.open_view_actions(); }
                 analysis_clicked => { root.open_analysis(); }
                 tileset_clicked => { root.open_tileset(); }
+                enter_text_clicked => { root.open_enter_text(); }
                 preferences_clicked => { root.open_config(); }
                 undo_clicked => { root.undo_clicked(); }
                 redo_clicked => { root.redo_clicked(); }
@@ -281,70 +405,198 @@ export component MainWindow inherits Window {
                 mode_selected(mode) => { root.change_color_mode(mode); }
             }
 
+            // 2b. MegaCopy Toolbar
+            Rectangle {
+                height: 30px;
+                background: #2d2d2d;
+                HorizontalLayout {
+                    padding_left: 8px;
+                    padding_right: 8px;
+                    spacing: 4px;
+                    alignment: start;
+
+                    Button {
+                        text: root.megacopy_active ? "MegaCopy ON" : "MegaCopy";
+                        clicked => { root.toggle_megacopy(); }
+                    }
+                    Button {
+                        text: "Copy";
+                        enabled: root.megacopy_active;
+                        clicked => { root.copy_to_clipboard(); }
+                    }
+                    Button {
+                        text: "Paste";
+                        clicked => { root.paste_from_clipboard(); }
+                    }
+                    CheckBox {
+                        text: "Skip #" + root.megacopy_skip_char_val;
+                        checked: root.megacopy_skip_char;
+                        toggled => { root.toggle_skip_char(); }
+                    }
+                    Button {
+                        text: "🎯";
+                        clicked => { root.set_skip_char_from_selected(); }
+                    }
+                    CheckBox {
+                        text: "Stay in Paste";
+                        checked: root.megacopy_stay_in_paste_mode;
+                        toggled => { root.toggle_stay_in_paste_mode(); }
+                    }
+                    Button {
+                        text: "📝 Text...";
+                        clicked => { root.open_enter_text(); }
+                    }
+                    Rectangle { width: 6px; }
+                    Button {
+                        text: "◀";
+                        clicked => { root.transform_clipboard(0); }
+                    }
+                    Button {
+                        text: "▶";
+                        clicked => { root.transform_clipboard(1); }
+                    }
+                    Button {
+                        text: "▲";
+                        clicked => { root.transform_clipboard(2); }
+                    }
+                    Button {
+                        text: "▼";
+                        clicked => { root.transform_clipboard(3); }
+                    }
+                    Button {
+                        text: "Mirr H";
+                        clicked => { root.transform_clipboard(4); }
+                    }
+                    Button {
+                        text: "Mirr V";
+                        clicked => { root.transform_clipboard(5); }
+                    }
+                    Button {
+                        text: "Invert";
+                        clicked => { root.transform_clipboard(6); }
+                    }
+                    Button {
+                        text: "Rot L";
+                        clicked => { root.transform_clipboard(7); }
+                    }
+                    Button {
+                        text: "Rot R";
+                        clicked => { root.transform_clipboard(8); }
+                    }
+                    Rectangle { width: 6px; }
+                    Button {
+                        text: "Paste to Font " + root.megacopy_paste_into_font_nr;
+                        enabled: root.megacopy_can_paste_in_place;
+                        clicked => { root.paste_in_place(); }
+                    }
+                    Button {
+                        text: "→F1";
+                        clicked => { root.paste_into_font(1); }
+                    }
+                    Button {
+                        text: "→F2";
+                        clicked => { root.paste_into_font(2); }
+                    }
+                    Button {
+                        text: "→F3";
+                        clicked => { root.paste_into_font(3); }
+                    }
+                    Button {
+                        text: "→F4";
+                        clicked => { root.paste_into_font(4); }
+                    }
+                }
+            }
+
             // 3. Main Workspace Layout
+            // Matches the C# form arrangement: Character Editor on top and the
+            // 512x256 Font Selector directly below it on the left, with the
+            // Atari View Editor on the right.
             HorizontalLayout {
                 padding: 4px;
                 spacing: 8px;
 
-                // Left Panel: Character Editor (Grid + Details + Buttons)
-                CharEditorPanel {
-                    width: 250px;
-                    hex_label: root.char_hex_label;
-                    dec_label: root.char_dec_label;
-                    ascii_label: root.char_ascii_label;
-                    active_mode: root.active_color_mode;
-                    selected_color: root.selected_draw_color;
-                    pixel_colors: root.char_pixel_colors;
+                // Left column: Character Editor + Font Selector
+                VerticalLayout {
+                    spacing: 8px;
+                    width: 532px;
 
-                    pixel_clicked(x, y, btn) => { root.char_pixel_pressed(x, y, btn); }
-                    pixel_dragged(x, y) => { root.char_pixel_dragged(x, y); }
-                    pixel_released => { root.char_pixel_released(); }
-                    select_draw_color(col) => { root.select_draw_color(col); }
+                    // Character Editor (Grid + Details + Buttons)
+                    CharEditorPanel {
+                        hex_label: root.char_hex_label;
+                        dec_label: root.char_dec_label;
+                        ascii_label: root.char_ascii_label;
+                        active_mode: root.active_color_mode;
+                        selected_color: root.selected_draw_color;
+                        write_mode: root.char_write_mode;
+                        recolor_source: root.char_recolor_source;
+                        recolor_target: root.char_recolor_target;
+                        pixel_colors: root.char_pixel_colors;
 
-                    shift_left => { root.shift_char_left(); }
-                    shift_right => { root.shift_char_right(); }
-                    shift_up => { root.shift_char_up(); }
-                    shift_down => { root.shift_char_down(); }
-                    rotate_left => { root.rotate_char_left(); }
-                    rotate_right => { root.rotate_char_right(); }
-                    mirror_horizontal => { root.mirror_char_horizontal(); }
-                    mirror_vertical => { root.mirror_char_vertical(); }
-                    invert => { root.invert_char(); }
-                    clear => { root.clear_char(); }
+                        pixel_clicked(x, y, btn) => { root.char_pixel_pressed(x, y, btn); }
+                        pixel_dragged(x, y) => { root.char_pixel_dragged(x, y); }
+                        pixel_released => { root.char_pixel_released(); }
+                        select_draw_color(col) => { root.select_draw_color(col); }
+                        write_mode_changed(m) => { root.write_mode_changed(m); }
+                        recolor_source_changed(s) => { root.recolor_source_changed(s); }
+                        recolor_target_changed(t) => { root.recolor_target_changed(t); }
+                        recolor_clicked => { root.recolor_clicked(); }
+
+                        shift_left => { root.shift_char_left(); }
+                        shift_right => { root.shift_char_right(); }
+                        shift_up => { root.shift_char_up(); }
+                        shift_down => { root.shift_char_down(); }
+                        rotate_left => { root.rotate_char_left(); }
+                        rotate_right => { root.rotate_char_right(); }
+                        mirror_horizontal => { root.mirror_char_horizontal(); }
+                        mirror_vertical => { root.mirror_char_vertical(); }
+                        invert => { root.invert_char(); }
+                        clear => { root.clear_char(); }
+                    }
+
+                    // Font Selector (512x256 Atlas View) below the editor
+                    FontSelectorPanel {
+                        selected_bank_pair: root.selected_bank_pair;
+                        selected_char: root.selected_char_index;
+                        font_title: root.active_font_name;
+                        selector_image: root.font_selector_image;
+                        character_clicked(idx) => {
+                            root.select_character(idx);
+                        }
+                        bank_toggle_clicked => {
+                            root.switch_bank_pair(root.selected_bank_pair == 0 ? 1 : 0);
+                        }
+                    }
                 }
 
-                // Middle Panel: Font Selector (512x128 Atlas View)
-                FontSelectorPanel {
-                    width: 530px;
-                    selected_bank_pair: root.selected_bank_pair;
-                    selected_char: root.selected_char_index;
-                    font_title: root.active_font_name;
-                    selector_image: root.font_selector_image;
-                    character_clicked(idx) => {
-                        root.select_character(idx);
-                    }
-                    bank_toggle_clicked => {
-                        root.switch_bank_pair(root.selected_bank_pair == 0 ? 1 : 0);
-                    }
-                }
-
-                // Right Panel: Atari View Editor (640x416 Viewport)
+                // Right column: Atari View Editor (640x416 Viewport)
                 ViewEditorPanel {
                     horizontal_stretch: 1;
                     view_image: root.view_editor_image;
                     selected_x: root.selected_view_x;
                     selected_y: root.selected_view_y;
                     page_info: root.view_page_info;
+                    page_name: root.view_page_name;
                     can_view_undo: root.can_view_undo;
                     can_view_redo: root.can_view_redo;
+                    megacopy_active: root.megacopy_active;
+                    megacopy_sel_x: root.megacopy_sel_x;
+                    megacopy_sel_y: root.megacopy_sel_y;
+                    megacopy_sel_w: root.megacopy_sel_w;
+                    megacopy_sel_h: root.megacopy_sel_h;
+                    line_fonts: root.view_line_fonts;
 
                     cell_clicked(x, y, btn) => { root.view_cell_clicked(x, y, btn); }
                     cell_dragged(x, y) => { root.view_cell_dragged(x, y); }
                     cell_released => { root.view_cell_released(); }
+                    line_font_clicked(line, btn, ctrl, shift) => { root.view_line_font_clicked(line, btn, ctrl, shift); }
                     prev_page => { root.view_prev_page(); }
                     next_page => { root.view_next_page(); }
                     add_page => { root.view_add_page(); }
                     delete_page => { root.view_delete_page(); }
+                    rename_page(name) => { root.view_rename_page(name); }
+                    move_page_up => { root.view_move_page_up(); }
+                    move_page_down => { root.view_move_page_down(); }
                     view_undo_clicked => { root.view_undo_clicked(); }
                     view_redo_clicked => { root.view_redo_clicked(); }
                 }
@@ -355,8 +607,11 @@ export component MainWindow inherits Window {
                 register_colors: root.palette_reg_colors;
                 selected_reg: root.selected_color_reg;
                 active_mode: root.active_color_mode;
+                selected_colorset_idx: root.selected_colorset_idx;
                 register_clicked(reg) => { root.palette_reg_clicked(reg); }
                 open_palette_dialog => { root.open_color_selector(); }
+                restore_defaults => { root.restore_default_colors(); }
+                colorset_selected(idx) => { root.colorset_selected(idx); }
             }
 
             // 5. Status Bar
@@ -381,10 +636,12 @@ export component MainWindow inherits Window {
             selected_format: root.export_font_format;
             selected_data_type: root.export_font_data_type;
             selected_font_range: root.export_font_range;
+            compress: root.export_font_compress;
 
             format_changed(f) => { root.export_font_format_changed(f); }
             data_type_changed(d) => { root.export_font_data_type_changed(d); }
             font_range_changed(r) => { root.export_font_range_changed(r); }
+            compress_toggled(c) => { root.export_font_compress_toggled(c); }
             export_clicked => { root.export_font_do_save(); }
             copy_clipboard_clicked => { root.export_font_copy_clipboard(); }
             close_clicked => { root.close_export_font(); }
@@ -396,10 +653,17 @@ export component MainWindow inherits Window {
             selected_format: root.export_view_format;
             selected_data_type: root.export_view_data_type;
             transpose_flag: root.export_view_transpose;
+            from_x: root.export_view_from_x;
+            from_y: root.export_view_from_y;
+            region_width: root.export_view_width;
+            region_height: root.export_view_height;
+            dimensions_label: root.export_view_dimensions_label;
 
             format_changed(f) => { root.export_view_format_changed(f); }
             data_type_changed(d) => { root.export_view_data_type_changed(d); }
             transpose_toggled(t) => { root.export_view_transpose_toggled(t); }
+            region_changed(rx, ry, rw, rh) => { root.export_view_region_changed(rx, ry, rw, rh); }
+            reset_region_clicked => { root.export_view_reset_region(); }
             export_clicked => { root.export_view_do_save(); }
             copy_clipboard_clicked => { root.export_view_copy_clipboard(); }
             close_clicked => { root.close_export_view(); }
@@ -478,18 +742,35 @@ export component MainWindow inherits Window {
 
         ViewActionsModal {
             is_open: root.show_view_actions_modal;
-            fill_char_code: Math.mod(root.selected_char_index, 256);
-            replace_from_char: Math.mod(root.selected_char_index, 256);
-            replace_to_char: 0;
+            has_area_selection: root.megacopy_active && root.megacopy_sel_w > 0 && root.megacopy_sel_h > 0;
+            area_info_text: root.view_actions_area_text;
+            fill_char_code: root.view_actions_fill_char_val;
+            replace_from_char: root.view_actions_replace_from_val;
+            replace_to_char: root.view_actions_replace_to_val;
+            filter_font1: root.view_actions_font1_filter;
+            filter_font2: root.view_actions_font2_filter;
+            filter_font3: root.view_actions_font3_filter;
+            filter_font4: root.view_actions_font4_filter;
 
             close_clicked => { root.close_view_actions(); }
             clear_view_clicked => { root.clear_entire_view(); }
+            clear_area_clicked => { root.clear_selected_area(); }
             fill_view_clicked(ch) => { root.fill_entire_view(ch); }
-            replace_chars_clicked(from_ch, to_ch) => { root.replace_chars_in_view(from_ch, to_ch); }
+            fill_area_clicked(ch) => { root.fill_selected_area(ch); }
+            replace_in_view_clicked(f, t, f1, f2, f3, f4) => { root.replace_chars_in_view(f, t, f1, f2, f3, f4); }
+            replace_in_area_clicked(f, t, f1, f2, f3, f4) => { root.replace_chars_in_area(f, t, f1, f2, f3, f4); }
             shift_view_up => { root.shift_entire_view_up(); }
             shift_view_down => { root.shift_entire_view_down(); }
             shift_view_left => { root.shift_entire_view_left(); }
             shift_view_right => { root.shift_entire_view_right(); }
+            shift_area_up => { root.shift_selected_area_up(); }
+            shift_area_down => { root.shift_selected_area_down(); }
+            shift_area_left => { root.shift_selected_area_left(); }
+            shift_area_right => { root.shift_selected_area_right(); }
+            set_fill_from_selected => { root.set_fill_from_selected(); }
+            set_replace_from_selected => { root.set_replace_from_selected(); }
+            set_replace_to_selected => { root.set_replace_to_selected(); }
+            toggle_font_filter(fnr) => { root.toggle_font_filter(fnr); }
         }
 
         ImportViewModal {
@@ -497,7 +778,39 @@ export component MainWindow inherits Window {
             import_status_info: root.import_view_status;
 
             close_clicked => { root.close_import_view(); }
-            import_clicked => { root.do_import_view(); }
+            import_clicked(lw, sx, sy, w, h) => { root.import_view_file(lw, sx, sy, w, h); }
+        }
+
+        EnterTextModal {
+            is_open: root.show_enter_text_modal;
+            text_value: root.enter_text_val;
+            is_inverse: root.enter_text_inverse_flag;
+            use_second_font: root.enter_text_second_font_flag;
+
+            close_clicked => { root.close_enter_text(); }
+            submit_clicked(text, inv, sec) => { root.submit_enter_text(text, inv, sec); }
+        }
+
+        ConfirmDialog {
+            is_open: root.show_confirm_modal;
+            title: root.confirm_title;
+            message: root.confirm_message;
+
+            confirmed => { root.confirm_clicked(); }
+            cancelled => { root.cancel_clicked(); }
+        }
+
+        FilePickerDialog {
+            is_open: root.show_file_picker;
+            save_mode: root.file_picker_save_mode;
+            current_dir: root.file_picker_dir;
+            dirs: root.file_picker_dirs;
+            files: root.file_picker_files;
+            file_name: root.file_picker_filename;
+
+            navigate(d) => { root.file_picker_navigate(d); }
+            select_file(f) => { root.file_picker_select_file(f); }
+            cancel => { root.file_picker_cancel(); }
         }
     }
 }

@@ -21,6 +21,14 @@ impl AfmApp {
     pub fn new() -> Result<Self, slint::PlatformError> {
         let ui = MainWindow::new()?;
         let state = Rc::new(RefCell::new(GuiState::new()));
+
+        // Restore the saved configuration at startup, matching C#
+        // `LoadConfiguration()` in the main form constructor.
+        {
+            let mut st = state.borrow_mut();
+            let _ = st.load_config_file(None);
+        }
+
         let controller = Rc::new(GuiController::new(state, ui.as_weak()));
 
         // Wire Slint navigation & mode callbacks to controller
@@ -138,6 +146,42 @@ impl AfmApp {
             let c = controller.clone();
             ui.on_save_project_clicked(move || c.save_project());
         }
+        {
+            let c = controller.clone();
+            ui.on_save_as_clicked(move || c.save_project_as());
+        }
+        {
+            let c = controller.clone();
+            ui.on_open_font(move |n| c.open_font(n as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_save_font(move |n| c.save_font(n as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_open_palette(move || c.open_palette());
+        }
+        {
+            let c = controller.clone();
+            ui.on_save_palette(move || c.save_palette());
+        }
+        {
+            let c = controller.clone();
+            ui.on_open_tile_dialog(move || c.tileset_load_tile_dialog());
+        }
+        {
+            let c = controller.clone();
+            ui.on_save_tile_dialog(move || c.tileset_save_tile_dialog());
+        }
+        {
+            let c = controller.clone();
+            ui.on_open_tileset_dialog(move || c.tileset_load_set_dialog());
+        }
+        {
+            let c = controller.clone();
+            ui.on_save_tileset_dialog(move || c.tileset_save_set_dialog());
+        }
 
         // Wire Keyboard, Focus & Navigation (Phase 20)
         {
@@ -166,11 +210,43 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
-            ui.on_copy_to_clipboard(move || c.tileset_copy());
+            ui.on_copy_to_clipboard(move || c.copy_view_to_clipboard());
         }
         {
             let c = controller.clone();
-            ui.on_paste_from_clipboard(move || c.tileset_paste());
+            ui.on_paste_from_clipboard(move || c.paste_view_from_clipboard());
+        }
+        {
+            let c = controller.clone();
+            ui.on_transform_clipboard(move |k| c.transform_clipboard(k as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_paste_into_font(move |n| c.paste_clipboard_into_font(n as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_toggle_skip_char(move || c.toggle_skip_char());
+        }
+        {
+            let c = controller.clone();
+            ui.on_set_skip_char_value(move |v| c.set_skip_char_value(v as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_set_skip_char_from_selected(move || c.set_skip_char_from_selected());
+        }
+        {
+            let c = controller.clone();
+            ui.on_toggle_stay_in_paste_mode(move || c.toggle_stay_in_paste_mode());
+        }
+        {
+            let c = controller.clone();
+            ui.on_set_paste_into_font_nr(move |n| c.set_paste_into_font_nr(n as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_paste_in_place(move || c.paste_in_place());
         }
         {
             let c = controller.clone();
@@ -194,6 +270,12 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
+            ui.on_view_line_font_clicked(move |line, btn, ctrl, shift| {
+                c.view_line_font_clicked(line as usize, btn as usize, ctrl, shift)
+            });
+        }
+        {
+            let c = controller.clone();
             ui.on_view_prev_page(move || c.view_prev_page());
         }
         {
@@ -210,11 +292,27 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
+            ui.on_view_rename_page(move |name| c.view_rename_page(name));
+        }
+        {
+            let c = controller.clone();
+            ui.on_view_move_page_up(move || c.view_move_page_up());
+        }
+        {
+            let c = controller.clone();
+            ui.on_view_move_page_down(move || c.view_move_page_down());
+        }
+        {
+            let c = controller.clone();
             ui.on_view_undo_clicked(move || c.view_undo());
         }
         {
             let c = controller.clone();
             ui.on_view_redo_clicked(move || c.view_redo());
+        }
+        {
+            let c = controller.clone();
+            ui.on_restore_default_colors(move || c.restore_default_colors());
         }
 
         // Wire Palette callbacks (Phase 17)
@@ -233,6 +331,10 @@ impl AfmApp {
         {
             let c = controller.clone();
             ui.on_palette_color_chosen(move |code| c.palette_color_chosen(code as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_colorset_selected(move |idx| c.select_colorset(idx as usize));
         }
 
         // Wire Exporter callbacks (Phase 18)
@@ -257,6 +359,10 @@ impl AfmApp {
         {
             let c = controller.clone();
             ui.on_export_font_range_changed(move |r| c.export_font_range_changed(r as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_export_font_compress_toggled(move |v| c.export_font_compress_toggled(v));
         }
         {
             let c = controller.clone();
@@ -288,6 +394,16 @@ impl AfmApp {
         {
             let c = controller.clone();
             ui.on_export_view_transpose_toggled(move |t| c.export_view_transpose_toggled(t));
+        }
+        {
+            let c = controller.clone();
+            ui.on_export_view_region_changed(move |rx, ry, rw, rh| {
+                c.export_view_set_region(rx as usize, ry as usize, rw as usize, rh as usize)
+            });
+        }
+        {
+            let c = controller.clone();
+            ui.on_export_view_reset_region(move || c.export_view_reset_region());
         }
         {
             let c = controller.clone();
@@ -407,31 +523,19 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
-            ui.on_tileset_load_tile(move || {
-                let p = std::path::PathBuf::from("tile.atrtile");
-                c.tileset_load_tile(&p);
-            });
+            ui.on_tileset_load_tile(move || c.tileset_load_tile_dialog());
         }
         {
             let c = controller.clone();
-            ui.on_tileset_save_tile(move || {
-                let p = std::path::PathBuf::from("tile.atrtile");
-                c.tileset_save_tile(&p);
-            });
+            ui.on_tileset_save_tile(move || c.tileset_save_tile_dialog());
         }
         {
             let c = controller.clone();
-            ui.on_tileset_load_set(move || {
-                let p = std::path::PathBuf::from("tileset.atrset");
-                c.tileset_load_set(&p);
-            });
+            ui.on_tileset_load_set(move || c.tileset_load_set_dialog());
         }
         {
             let c = controller.clone();
-            ui.on_tileset_save_set(move || {
-                let p = std::path::PathBuf::from("tileset.atrset");
-                c.tileset_save_set(&p);
-            });
+            ui.on_tileset_save_set(move || c.tileset_save_set_dialog());
         }
         {
             let c = controller.clone();
@@ -484,7 +588,7 @@ impl AfmApp {
             ui.on_refresh_analysis(move || c.refresh_analysis());
         }
 
-        // Wire View Actions Callbacks (Final Audit Parity)
+        // Wire View Actions Callbacks (Final Audit Parity & Phase 21B-7 G-5)
         {
             let c = controller.clone();
             ui.on_open_view_actions(move || c.open_view_actions());
@@ -499,12 +603,26 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
+            ui.on_clear_selected_area(move || c.clear_selected_area());
+        }
+        {
+            let c = controller.clone();
             ui.on_fill_entire_view(move |ch| c.fill_entire_view(ch as usize));
         }
         {
             let c = controller.clone();
-            ui.on_replace_chars_in_view(move |from_ch, to_ch| {
-                c.replace_chars_in_view(from_ch as usize, to_ch as usize)
+            ui.on_fill_selected_area(move |ch| c.fill_selected_area(ch as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_replace_chars_in_view(move |from_ch, to_ch, f1, f2, f3, f4| {
+                c.replace_chars_in_view(from_ch as usize, to_ch as usize, f1, f2, f3, f4);
+            });
+        }
+        {
+            let c = controller.clone();
+            ui.on_replace_chars_in_area(move |from_ch, to_ch, f1, f2, f3, f4| {
+                c.replace_chars_in_area(from_ch as usize, to_ch as usize, f1, f2, f3, f4);
             });
         }
         {
@@ -523,6 +641,38 @@ impl AfmApp {
             let c = controller.clone();
             ui.on_shift_entire_view_right(move || c.shift_entire_view_right());
         }
+        {
+            let c = controller.clone();
+            ui.on_shift_selected_area_up(move || c.shift_selected_area_up());
+        }
+        {
+            let c = controller.clone();
+            ui.on_shift_selected_area_down(move || c.shift_selected_area_down());
+        }
+        {
+            let c = controller.clone();
+            ui.on_shift_selected_area_left(move || c.shift_selected_area_left());
+        }
+        {
+            let c = controller.clone();
+            ui.on_shift_selected_area_right(move || c.shift_selected_area_right());
+        }
+        {
+            let c = controller.clone();
+            ui.on_set_fill_from_selected(move || c.set_view_actions_fill_from_selected());
+        }
+        {
+            let c = controller.clone();
+            ui.on_set_replace_from_selected(move || c.set_view_actions_replace_from_selected());
+        }
+        {
+            let c = controller.clone();
+            ui.on_set_replace_to_selected(move || c.set_view_actions_replace_to_selected());
+        }
+        {
+            let c = controller.clone();
+            ui.on_toggle_font_filter(move |fnr| c.toggle_view_actions_font_filter(fnr as usize));
+        }
 
         // Wire Import View Callbacks (Final Audit Parity)
         {
@@ -535,10 +685,79 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
-            ui.on_do_import_view(move || {
-                let sample_bytes = vec![0u8; 1040];
-                c.do_import_view(&sample_bytes, 40, 0, 0, 40, 26);
+            ui.on_import_view_file(move |lw, sx, sy, w, h| {
+                c.import_view_from_file(
+                    lw as usize,
+                    sx as usize,
+                    sy as usize,
+                    w as usize,
+                    h as usize,
+                );
             });
+        }
+
+        // Wire WriteMode & Recolor & EnterText Callbacks (Phase 21B-6 G-4)
+        {
+            let c = controller.clone();
+            ui.on_write_mode_changed(move |m| c.set_write_mode(m as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_recolor_source_changed(move |s| c.set_recolor_source(s as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_recolor_target_changed(move |t| c.set_recolor_target(t as usize));
+        }
+        {
+            let c = controller.clone();
+            ui.on_recolor_clicked(move || c.recolor_character());
+        }
+        {
+            let c = controller.clone();
+            ui.on_open_enter_text(move || c.open_enter_text());
+        }
+        {
+            let c = controller.clone();
+            ui.on_close_enter_text(move || c.close_enter_text());
+        }
+        {
+            let c = controller.clone();
+            ui.on_submit_enter_text(move |text, inv, sec| c.submit_enter_text(text, inv, sec));
+        }
+
+        // Wire Destructive-operation confirmation callbacks (Phase 21C-1)
+        {
+            let c = controller.clone();
+            ui.on_confirm_clicked(move || c.confirm_pending());
+        }
+        {
+            let c = controller.clone();
+            ui.on_cancel_clicked(move || c.cancel_pending());
+        }
+
+        // Quit confirmation (C# `Form_CloseQuery` → `ActionExitApplication`):
+        // intercept the window close request and ask for confirmation.
+        {
+            let c = controller.clone();
+            ui.window().on_close_requested(move || {
+                c.request_quit_confirmation();
+                slint::CloseRequestResponse::KeepWindowShown
+            });
+        }
+
+        // Wire in-window file picker callbacks (Phase 21D-1)
+        {
+            let c = controller.clone();
+            ui.on_file_picker_navigate(move |d| c.file_picker_navigate(d));
+        }
+        {
+            let c = controller.clone();
+            ui.on_file_picker_select_file(move |f| c.file_picker_select(f));
+        }
+        {
+            let c = controller.clone();
+            ui.on_file_picker_cancel(move || c.file_picker_cancel());
         }
 
         // Perform initial synchronization of state properties to UI

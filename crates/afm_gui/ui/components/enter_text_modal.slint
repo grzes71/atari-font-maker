@@ -1,0 +1,97 @@
+import { Button, LineEdit, CheckBox } from "std-widgets.slint";
+
+export component EnterTextModal inherits Rectangle {
+    in property <bool> is_open: false;
+    in-out property <string> text_value: "";
+    in-out property <bool> is_inverse: false;
+    in-out property <bool> use_second_font: false;
+
+    callback close_clicked();
+    callback submit_clicked(string, bool, bool);
+
+    visible: root.is_open;
+    background: #00000088;
+
+    Rectangle {
+        width: 480px;
+        height: 280px;
+        background: #252526;
+        border-color: #007acc;
+        border-width: 2px;
+        border-radius: 6px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Title Bar
+            HorizontalLayout {
+                Text {
+                    text: "📝 Enter Text to Clipboard";
+                    color: #ffffff;
+                    font_size: 15px;
+                    font_weight: 700;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    text: "✕";
+                    clicked => { root.close_clicked(); }
+                }
+            }
+
+            Text {
+                text: "Enter text of up to 32 characters to convert to Atari screen codes and copy to clipboard:";
+                color: #cccccc;
+                font_size: 12px;
+                wrap: word-wrap;
+            }
+
+            input_box := LineEdit {
+                text <=> root.text_value;
+                placeholder_text: "Type text here (max 32 chars)...";
+                font_size: 13px;
+                accepted => {
+                    root.submit_clicked(self.text, root.is_inverse, root.use_second_font);
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: start;
+
+                CheckBox {
+                    text: "Inverse text (Shift)";
+                    checked <=> root.is_inverse;
+                }
+
+                CheckBox {
+                    text: "Use 2nd font in bank (Ctrl)";
+                    checked <=> root.use_second_font;
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; }
+
+            // Action Buttons
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+
+                Button {
+                    text: "Cancel";
+                    clicked => { root.close_clicked(); }
+                }
+
+                Button {
+                    text: "✓ Add to Clipboard";
+                    clicked => {
+                        root.submit_clicked(input_box.text, root.is_inverse, root.use_second_font);
+                    }
+                }
+            }
+        }
+    }
+}

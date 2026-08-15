@@ -1,4 +1,4 @@
-import { Button } from "std-widgets.slint";
+import { Button, ComboBox } from "std-widgets.slint";
 
 export component CharEditorPanel inherits Rectangle {
     background: #242424;
@@ -11,11 +11,18 @@ export component CharEditorPanel inherits Rectangle {
     in property <[color]> pixel_colors;
     in property <int> active_mode: 0;
     in property <int> selected_color: 2; // Active draw color (0..3 in mode 4/5)
+    in property <int> write_mode: 0;     // 0 = Rewrite (Toggle), 1 = Insert (Draw)
+    in property <int> recolor_source: 0;
+    in property <int> recolor_target: 1;
 
     callback pixel_clicked(int, int, int); // (x, y, button: 0=Left, 1=Right)
     callback pixel_dragged(int, int);      // (x, y)
     callback pixel_released();
     callback select_draw_color(int);
+    callback write_mode_changed(int);
+    callback recolor_source_changed(int);
+    callback recolor_target_changed(int);
+    callback recolor_clicked();
 
     // Transform callbacks
     callback shift_left();
@@ -69,26 +76,45 @@ export component CharEditorPanel inherits Rectangle {
             }
         }
 
-        // Color selector buttons for Mode 4 / 5 / 10
-        if root.active_mode == 1 || root.active_mode == 2: HorizontalLayout {
-            spacing: 4px;
+        // Write Mode & Draw Color controls
+        HorizontalLayout {
+            spacing: 6px;
             alignment: center;
 
-            Button {
-                text: root.selected_color == 0 ? "[BAK]" : "BAK";
-                clicked => { root.select_draw_color(0); }
+            Text {
+                text: "Mode:";
+                color: #aaaaaa;
+                font_size: 11px;
+                vertical-alignment: center;
             }
-            Button {
-                text: root.selected_color == 1 ? "[PF0]" : "PF0";
-                clicked => { root.select_draw_color(1); }
+
+            ComboBox {
+                model: ["Rewrite", "Insert"];
+                current_index: root.write_mode;
+                selected(val) => {
+                    root.write_mode_changed(self.current_index);
+                }
             }
-            Button {
-                text: root.selected_color == 2 ? "[PF1]" : "PF1";
-                clicked => { root.select_draw_color(2); }
-            }
-            Button {
-                text: root.selected_color == 3 ? "[PF2]" : "PF2";
-                clicked => { root.select_draw_color(3); }
+
+            // Color selector buttons for Mode 4 / 5
+            if root.active_mode == 1 || root.active_mode == 2: HorizontalLayout {
+                spacing: 3px;
+                Button {
+                    text: root.selected_color == 0 ? "[BAK]" : "BAK";
+                    clicked => { root.select_draw_color(0); }
+                }
+                Button {
+                    text: root.selected_color == 1 ? "[PF0]" : "PF0";
+                    clicked => { root.select_draw_color(1); }
+                }
+                Button {
+                    text: root.selected_color == 2 ? "[PF1]" : "PF1";
+                    clicked => { root.select_draw_color(2); }
+                }
+                Button {
+                    text: root.selected_color == 3 ? "[PF2]" : "PF2";
+                    clicked => { root.select_draw_color(3); }
+                }
             }
         }
 
@@ -145,6 +171,54 @@ export component CharEditorPanel inherits Rectangle {
                         }
                     }
                 }
+            }
+        }
+
+        // Recolor Controls (Matching C# panelColorSwitcher / Recolor)
+        if root.active_mode != 0: HorizontalLayout {
+            spacing: 4px;
+            alignment: center;
+
+            Text {
+                text: "Recolor:";
+                color: #aaaaaa;
+                font_size: 11px;
+                vertical-alignment: center;
+            }
+
+            if root.active_mode == 1 || root.active_mode == 2: HorizontalLayout {
+                spacing: 3px;
+                ComboBox {
+                    model: ["BAK (00)", "PF0 (01)", "PF1 (10)", "PF2 (11)"];
+                    current_index: root.recolor_source;
+                    selected(val) => { root.recolor_source_changed(self.current_index); }
+                }
+                Text { text: "↔"; color: #ffffff; vertical-alignment: center; }
+                ComboBox {
+                    model: ["BAK (00)", "PF0 (01)", "PF1 (10)", "PF2 (11)"];
+                    current_index: root.recolor_target;
+                    selected(val) => { root.recolor_target_changed(self.current_index); }
+                }
+            }
+
+            if root.active_mode == 3: HorizontalLayout {
+                spacing: 3px;
+                ComboBox {
+                    model: ["Color 0", "Color 1", "Color 2", "Color 3", "Color 4", "Color 5", "Color 6", "Color 7", "Color 8"];
+                    current_index: root.recolor_source;
+                    selected(val) => { root.recolor_source_changed(self.current_index); }
+                }
+                Text { text: "↔"; color: #ffffff; vertical-alignment: center; }
+                ComboBox {
+                    model: ["Color 0", "Color 1", "Color 2", "Color 3", "Color 4", "Color 5", "Color 6", "Color 7", "Color 8"];
+                    current_index: root.recolor_target;
+                    selected(val) => { root.recolor_target_changed(self.current_index); }
+                }
+            }
+
+            Button {
+                text: "Swap";
+                clicked => { root.recolor_clicked(); }
             }
         }
 

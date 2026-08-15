@@ -6,10 +6,12 @@ use afm_core::analysis::{analyze_character_usage, analyze_duplicates, analyze_pr
 use afm_core::codecs::atrview::{AtrViewProject, SavedPageData};
 use afm_core::codecs::clipboard::ClipboardJson;
 use afm_core::codecs::config::ConfigurationJson;
+use afm_core::codecs::legacy_view::{LegacyView, parse_vf2, parse_vfn};
 use afm_core::codecs::tileset::{AtrTileJson, AtrTileSetJson};
 use afm_core::error::{AtrViewFormatError, PaletteFormatError};
 use afm_core::exporters::{
-    DataType, FontSelection, FormatType, ViewExportRegion, export_font_as_text, export_view_as_text,
+    DataType, FontSelection, FormatType, ViewExportRegion, export_font_as_text, export_font_binary,
+    export_font_bmp, export_view_as_text, export_view_binary,
 };
 use afm_core::font::area_transforms::PixelMatrix;
 use afm_core::font::bank::FontBankSet;
@@ -23,8 +25,41 @@ use afm_core::tileset::{
 use afm_core::undo::font_undo::FontUndoBuffer;
 use afm_core::undo::view_undo::{ViewUndoBuffer, ViewUndoState};
 use afm_core::view::operations::{
-    ViewImportOptions, ViewReplaceOptions, extract_view_import, fill_area, replace_char_x_with_y,
+    AreaShiftDirection, ViewImportOptions, ViewReplaceOptions, extract_view_import, fill_area,
+    replace_char_x_with_y, shift_area,
 };
+
+/// Clipboard transformation kind (matches C# MegaCopy `ExecuteCopyArea*`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardTransform {
+    ShiftLeft,
+    ShiftRight,
+    ShiftUp,
+    ShiftDown,
+    MirrorH,
+    MirrorV,
+    Invert,
+    RotateLeft,
+    RotateRight,
+}
+
+/// A destructive operation awaiting user confirmation (matches C# `MessageBox.YesNo`
+/// prompts guarding destructive actions).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingAction {
+    /// C# `ActionNewFontAndView` — "reset to the default character set and view?".
+    NewProject,
+    /// C# `ActionDeletePage` — "delete the page?".
+    DeletePage,
+    /// C# `buttonNewTileSet_Click` — "reset the current tile set?".
+    NewTileSet,
+    /// C# `InteractWithTheColorPalette` (Shift) — "Restore default colors?".
+    RestoreDefaultColors,
+    /// C# `LoadViewFile` — "load fonts embedded in this view file?".
+    LoadFonts,
+    /// C# `ActionExitApplication` — "Are you sure you want to quit?".
+    Quit,
+}
 
 /// Application state combining Domain State, GUI Interaction State, and Derived properties.
 #[derive(Debug)]
@@ -52,6 +87,13 @@ pub struct GuiState {
     // Clipboard and MegaCopy State
     pub clipboard: Option<ClipboardJson>,
     pub is_megacopy_active: bool,
+    /// Current rubber-band selection (x1, y1, x2, y2) in view cells.
+    pub megacopy_selection: Option<(usize, usize, usize, usize)>,
+    // MegaCopy Options (Phase 21B-9 G-7)
+    pub skip_char_enabled: bool,
+    pub skip_char_value: u8,
+    pub stay_in_paste_mode: bool,
+    pub paste_into_font_nr: usize,
 
     // Undo / Redo History (Character / Font level)
     pub font_undo: FontUndoBuffer,
@@ -59,13 +101,16 @@ pub struct GuiState {
 
     // Undo / Redo History (View level)
     pub view_undo: ViewUndoBuffer,
+    /// Per-page view undo/redo buffers, 1:1 with `project.pages` (matches C# `PageData.UndoBuffer`).
+    pub view_undo_buffers: Vec<ViewUndoBuffer>,
     pub selected_view_x: usize,
     pub selected_view_y: usize,
     pub is_view_dragging: bool,
 
-    // Palette Editor State
+    // Palette Editor State & ColorSets (Phase 21B-10 G-8)
     pub selected_color_reg: usize, // 0..9
     pub show_color_selector: bool,
+    pub current_color_set_idx: usize,
 
     // Exporter Modals State
     pub show_export_font_dialog: bool,
@@ -91,10 +136,37 @@ pub struct GuiState {
     pub analysis_summary_text: String,
     pub analysis_details_text: String,
 
-    // View Actions & Import View State (Final Audit Parity)
+    // View Actions & Import View State (Final Audit Parity & Phase 21B-7 G-5)
     pub show_view_actions_dialog: bool,
+    pub view_actions_fill_char: u8,
+    pub view_actions_replace_from: u8,
+    pub view_actions_replace_to: u8,
+    pub view_actions_font_filters: [bool; 4],
     pub show_import_view_dialog: bool,
     pub import_view_status_text: String,
+
+    // Phase 21B-6 G-4: WriteMode, Recolor, EnterText
+    pub write_mode: usize,
+    pub recolor_source: usize,
+    pub recolor_target: usize,
+    pub show_enter_text_dialog: bool,
+    pub enter_text_input: String,
+    pub enter_text_inverse: bool,
+    pub enter_text_second_font: bool,
+
+    // Phase 21C-1: Destructive-operation confirmation dialog state
+    pub show_confirm_dialog: bool,
+    pub confirm_title: String,
+    pub confirm_message: String,
+    pub pending_action: Option<PendingAction>,
+
+    // Phase 21D-1: In-window file picker (works without a native portal/GTK)
+    pub show_file_picker: bool,
+    pub file_picker_save_mode: bool,
+    pub file_picker_dir: String,
+    pub file_picker_dirs: Vec<String>,
+    pub file_picker_files: Vec<String>,
+    pub file_picker_filename: String,
 }
 
 impl Default for GuiState {
@@ -120,7 +192,9 @@ impl GuiState {
         }
 
         let renderer = FontRenderer::new(palette.clone(), project.colors);
-        let fonts = FontBankSet::new();
+        // C# startup loads `Default.fnt` into all four banks (`LoadViewFile(null, true)`),
+        // so the font selector shows real glyphs immediately.
+        let fonts = FontBankSet::with_default_font();
         let mut font_undo = FontUndoBuffer::new();
         font_undo.add_to_undo_initial(&fonts);
 
@@ -135,6 +209,7 @@ impl GuiState {
             atlas_buffer,
             font_undo,
             view_undo: ViewUndoBuffer::new(),
+            view_undo_buffers: vec![ViewUndoBuffer::new()],
             selected_char_index: 0,
             selected_bank_pair: 0,
             active_color_mode: 0,
@@ -151,9 +226,15 @@ impl GuiState {
             last_painted_pixel: None,
             initial_draw_color: None,
             is_megacopy_active: false,
+            megacopy_selection: None,
+            skip_char_enabled: false,
+            skip_char_value: 0,
+            stay_in_paste_mode: false,
+            paste_into_font_nr: 1,
             is_view_dragging: false,
             selected_color_reg: 1,
             show_color_selector: false,
+            current_color_set_idx: 0,
             show_export_font_dialog: false,
             show_export_view_dialog: false,
             export_preview_text: String::new(),
@@ -172,9 +253,45 @@ impl GuiState {
             analysis_details_text: "Select a character to see usage details across all pages."
                 .to_string(),
             show_view_actions_dialog: false,
+            view_actions_fill_char: 0,
+            view_actions_replace_from: 0,
+            view_actions_replace_to: 0,
+            view_actions_font_filters: [true, true, true, true],
             show_import_view_dialog: false,
             import_view_status_text: "Ready to import raw binary data".to_string(),
+            write_mode: 0,
+            recolor_source: 0,
+            recolor_target: 1,
+            show_enter_text_dialog: false,
+            enter_text_input: String::new(),
+            enter_text_inverse: false,
+            enter_text_second_font: false,
+            show_confirm_dialog: false,
+            confirm_title: String::new(),
+            confirm_message: String::new(),
+            pending_action: None,
+            show_file_picker: false,
+            file_picker_save_mode: false,
+            file_picker_dir: String::new(),
+            file_picker_dirs: Vec::new(),
+            file_picker_files: Vec::new(),
+            file_picker_filename: "project.atrview".to_string(),
         }
+    }
+
+    /// Create a new blank project, resetting fonts, view, colors, undo history and active color set,
+    /// while preserving global application configuration (such as Alt colors 1..5 in `self.config`).
+    /// Matches C# `ActionNew` / `SetupDefaultPalColors` + `SetPrimaryColorSetData`.
+    pub fn new_project(&mut self) {
+        let saved_config = self.config.clone();
+        let saved_palette = self.palette.clone();
+        *self = Self::new();
+        self.config = saved_config;
+        self.palette = saved_palette;
+        self.current_color_set_idx = 0;
+        self.restore_default_colors();
+        self.is_dirty = false;
+        self.status_message = "Created new project".to_string();
     }
 
     /// Map current active integer color mode (0..=3) to `RenderColorMode`.
@@ -249,7 +366,11 @@ impl GuiState {
             0 => {
                 let mut bits = GlyphBytes::decode_mono(byte_val);
                 if button == 0 {
-                    bits[x] = if bits[x] == 0 { 1 } else { 0 };
+                    if self.write_mode == 0 {
+                        bits[x] = if bits[x] == 0 { 1 } else { 0 };
+                    } else {
+                        bits[x] = 1;
+                    }
                 } else {
                     bits[x] = 0;
                 }
@@ -260,7 +381,11 @@ impl GuiState {
                 let p_idx = x / 2;
                 if button == 0 {
                     let col = (self.selected_draw_color & 0x03) as u8;
-                    pixels[p_idx] = if pixels[p_idx] != col { col } else { 0 };
+                    if self.write_mode == 0 {
+                        pixels[p_idx] = if pixels[p_idx] != col { col } else { 0 };
+                    } else {
+                        pixels[p_idx] = col;
+                    }
                 } else {
                     pixels[p_idx] = 0;
                 }
@@ -271,7 +396,11 @@ impl GuiState {
                 let p_idx = x / 4;
                 if button == 0 {
                     let col = (self.selected_draw_color & 0x0F) as u8;
-                    pixels[p_idx] = if pixels[p_idx] != col { col } else { 0 };
+                    if self.write_mode == 0 {
+                        pixels[p_idx] = if pixels[p_idx] != col { col } else { 0 };
+                    } else {
+                        pixels[p_idx] = col;
+                    }
                 } else {
                     pixels[p_idx] = 0;
                 }
@@ -283,6 +412,94 @@ impl GuiState {
         self.is_char_edited = true;
         self.is_dirty = true;
         self.render_one_char_atlas(self.selected_char_index, on_bank2);
+    }
+
+    // =========================================================================
+    // Phase 21B-6 G-4: EnterText, Recolor, WriteMode
+    // =========================================================================
+
+    pub fn set_write_mode(&mut self, mode: usize) {
+        self.write_mode = mode.min(1);
+    }
+
+    pub fn set_recolor_source(&mut self, src: usize) {
+        self.recolor_source = src;
+    }
+
+    pub fn set_recolor_target(&mut self, dst: usize) {
+        self.recolor_target = dst;
+    }
+
+    /// Recolor character glyph by swapping two colors, matching C# `ColorSwitch2Bit` / `ColorSwitch4Bit`.
+    pub fn recolor_character(&mut self, src_color: usize, dst_color: usize) {
+        if src_color == dst_color {
+            return;
+        }
+        self.commit_char_if_edited();
+        let on_bank2 = self.selected_bank_pair != 0;
+        match self.active_color_mode {
+            0 => {
+                // In Mono mode, swapping color 0 and 1 inverts the glyph.
+                self.fonts
+                    .invert_character(self.selected_char_index, on_bank2);
+            }
+            1 | 2 => {
+                self.fonts.recolor_2bit(
+                    self.selected_char_index,
+                    on_bank2,
+                    src_color as u8,
+                    dst_color as u8,
+                );
+            }
+            3 => {
+                self.fonts.recolor_4bit(
+                    self.selected_char_index,
+                    on_bank2,
+                    src_color as u8,
+                    dst_color as u8,
+                );
+            }
+            _ => return,
+        }
+
+        self.font_undo.add_to_undo_full_difference_scan(&self.fonts);
+        self.is_char_edited = false;
+        self.is_dirty = true;
+        self.render_one_char_atlas(self.selected_char_index, on_bank2);
+        self.status_message =
+            format!("Recolored character (swapped color {src_color} and {dst_color})");
+    }
+
+    /// Open the Enter Text dialog.
+    pub fn open_enter_text_dialog(&mut self) {
+        self.show_enter_text_dialog = true;
+    }
+
+    /// Close the Enter Text dialog.
+    pub fn close_enter_text_dialog(&mut self) {
+        self.show_enter_text_dialog = false;
+    }
+
+    /// Convert text string to Atari screen codes and clipboard JSON, matching C# `RenderTextToClipboard`.
+    pub fn render_enter_text(
+        &mut self,
+        text: &str,
+        inverse: bool,
+        second_font: bool,
+    ) -> ClipboardJson {
+        let bank_idx = (self.selected_bank_pair * 2) + if second_font { 1 } else { 0 };
+        // Truncate to max 32 chars if length exceeds 32 (matching C# switch (text.Length) case > 32: text = text[^32..])
+        let text_slice = if text.len() > 32 {
+            &text[text.len() - 32..]
+        } else {
+            text
+        };
+
+        let clip =
+            afm_core::font::render_text_to_clipboard(text_slice, inverse, bank_idx, &self.fonts);
+        self.clipboard = Some(clip.clone());
+        self.status_message = format!("Rendered text \"{text_slice}\" to clipboard");
+        clip
     }
 
     // 10 Glyph Transformations
@@ -474,17 +691,38 @@ impl GuiState {
             self.font_undo.add_to_undo(&self.fonts, true);
             self.is_char_edited = false;
         }
+        // C# `Form_KeyDown` only invokes Undo when `undoEnabled` is true; a
+        // no-op undo would otherwise copy from an uninitialized buffer slot and
+        // corrupt the font data.
+        if !self.can_undo() {
+            return;
+        }
+        let before = *self.fonts.as_bytes();
         self.font_undo.undo(&mut self.fonts);
+        let changed = self.fonts.as_bytes() != &before;
         self.render_full_atlas();
-        self.is_dirty = true;
+        // Only mark dirty when the undo actually changed font data (matches C#
+        // `Form_KeyDown` which only invokes Undo when `undoEnabled` is true).
+        if changed {
+            self.is_dirty = true;
+        }
         self.status_message = "Undo performed".to_string();
     }
 
     pub fn redo(&mut self) {
+        // C# `Form_KeyDown` only invokes Redo when `redoEnabled` is true; a
+        // no-op redo would advance the buffer index into an invalid slot.
+        if !self.can_redo() {
+            return;
+        }
+        let before = *self.fonts.as_bytes();
         self.font_undo.redo(&mut self.fonts);
+        let changed = self.fonts.as_bytes() != &before;
         self.is_char_edited = false;
         self.render_full_atlas();
-        self.is_dirty = true;
+        if changed {
+            self.is_dirty = true;
+        }
         self.status_message = "Redo performed".to_string();
     }
 
@@ -515,10 +753,68 @@ impl GuiState {
         }
 
         // Rebuild renderer palette with updated color registers
+        self.save_current_color_set();
         self.renderer.set_color_registers(self.project.colors);
         self.render_full_atlas();
         self.is_dirty = true;
         self.status_message = format!("Updated Color Register {} to ${:02X}", reg, color_index);
+    }
+
+    /// Save the current 10 color registers to the active ColorSet in configuration
+    /// (matches C# `SaveColorSet()` in `Colors.cs:618-622`).
+    pub fn save_current_color_set(&mut self) {
+        if self.config.color_sets.len() < 6 {
+            self.config.verify_defaults();
+        }
+        if self.current_color_set_idx < self.config.color_sets.len() {
+            self.config.color_sets[self.current_color_set_idx] =
+                hex::encode_upper(self.project.colors);
+        }
+    }
+
+    /// Switch to a different ColorSet (0..=5), saving the current set and loading the next
+    /// (matches C# `SwopColorSet(saveCurrent: true)` and `SwopColorSetAction` in `Colors.cs:585-616`).
+    pub fn switch_color_set(&mut self, next_idx: usize) {
+        if self.config.color_sets.len() < 6 {
+            self.config.verify_defaults();
+        }
+        let target_idx = next_idx.min(self.config.color_sets.len().saturating_sub(1));
+
+        // Save current color set data (matches C# `SwopColorSet(saveCurrent: true)`)
+        self.save_current_color_set();
+
+        // Load next color set (matches C# `SwopColorSetAction`)
+        let hex_str = &self.config.color_sets[target_idx];
+        let fixed_hex = afm_core::codecs::atrview::fix_color_hex_string(hex_str);
+        if let Ok(bytes) = hex::decode(&fixed_hex) {
+            for (i, &b) in bytes.iter().take(10).enumerate() {
+                self.project.colors[i] = b;
+            }
+        }
+
+        self.current_color_set_idx = target_idx;
+        self.renderer.set_color_registers(self.project.colors);
+        self.render_full_atlas();
+        self.is_dirty = true;
+        let set_name = if target_idx == 0 {
+            "Project colors".to_string()
+        } else {
+            format!("Alt colors {target_idx}")
+        };
+        self.status_message = format!("Switched to ColorSet {target_idx} ({set_name})");
+    }
+
+    /// Return human-readable names for the 6 ColorSets (matches C# `comboBoxColorSets` in `Colors.cs:569-572`).
+    pub fn color_set_names(&self) -> Vec<String> {
+        (0..6)
+            .map(|i| {
+                if i == 0 {
+                    "Project colors".to_string()
+                } else {
+                    format!("Alt colors {i}")
+                }
+            })
+            .collect()
     }
 
     /// Return exactly 10 `slint::Color` values representing the current color registers.
@@ -561,7 +857,12 @@ impl GuiState {
     /// Save current 768-byte palette.
     pub fn save_palette_to_bytes(&self) -> [u8; 768] {
         let mut buf = [0u8; 768];
-        let _ = self.palette.save(&mut std::io::Cursor::new(&mut buf[..]));
+        for i in 0..256 {
+            let c = self.palette.color(i as u8);
+            buf[i * 3] = c.r;
+            buf[i * 3 + 1] = c.g;
+            buf[i * 3 + 2] = c.b;
+        }
         buf
     }
 
@@ -675,15 +976,37 @@ impl GuiState {
     }
 
     /// Set font number (1..=4) for row `line`.
+    ///
+    /// Matches C# `ActionCharacterSetSelector`: the change is NOT pushed to the
+    /// view undo buffer as its own step (C# does not call `PushState()` before
+    /// mutating `UseFontOnLine`), but it does mark the project dirty.
     pub fn set_line_font(&mut self, line: usize, font_nr: u8) {
         if line < self.project.line_fonts.len() {
-            self.push_view_undo();
             self.project.line_fonts[line] = font_nr.clamp(1, 4);
             self.is_dirty = true;
         }
     }
 
-    /// Copy rectangular region from view screen to clipboard.
+    /// Cycle the font number for row `line` forward (1→2→3→4→1) or backward
+    /// (1→4→3→2→1), matching C# `ActionCharacterSetSelector`.
+    pub fn cycle_view_line_font(&mut self, line: usize, backward: bool) {
+        if line >= self.project.line_fonts.len() {
+            return;
+        }
+        let cur = self.project.line_fonts[line].clamp(1, 4);
+        self.project.line_fonts[line] = if backward {
+            if cur == 1 { 4 } else { cur - 1 }
+        } else if cur == 4 {
+            1
+        } else {
+            cur + 1
+        };
+        self.is_dirty = true;
+    }
+
+    /// Copy rectangular region from view screen to clipboard (matches C#
+    /// `ExecuteCopyToClipboard(sourceIsView: true)`): captures character codes,
+    /// per-row font assignment (decimal digits), glyph data, and nulls.
     pub fn copy_view_selection(&mut self, x: usize, y: usize, w: usize, h: usize) {
         let x_end = (x + w).min(40);
         let y_end = (y + h).min(26);
@@ -694,12 +1017,24 @@ impl GuiState {
         }
 
         let mut chars = Vec::with_capacity(actual_w * actual_h);
-        let mut fonts = Vec::with_capacity(actual_h);
+        let mut data = Vec::with_capacity(actual_w * actual_h * 8);
+        let mut font_nr = String::with_capacity(actual_h);
+        let mut nulls = String::with_capacity(actual_w * actual_h);
+
+        let font_bytes = self.fonts.as_bytes();
 
         for cy in y..y_end {
-            fonts.push(self.project.line_fonts[cy]);
+            let font = self.project.line_fonts[cy].clamp(1, 4) as usize;
+            font_nr.push((b'0' + font as u8) as char);
             for cx in x..x_end {
-                chars.push(self.project.view_bytes[cy * 40 + cx]);
+                let ch = self.project.view_bytes[cy * 40 + cx];
+                chars.push(ch);
+                let is_null = self.skip_char_enabled && ch == self.skip_char_value;
+                nulls.push(if is_null { '1' } else { '0' });
+                let glyph_offset = (ch % 128) as usize * 8 + (font - 1) * 1024;
+                for k in 0..8 {
+                    data.push(font_bytes.get(glyph_offset + k).copied().unwrap_or(0));
+                }
             }
         }
 
@@ -707,48 +1042,262 @@ impl GuiState {
             width: Some(actual_w.to_string()),
             height: Some(actual_h.to_string()),
             chars: Some(hex::encode(chars)),
-            font_nr: Some(hex::encode(fonts)),
-            data: None,
-            nulls: None,
+            data: Some(hex::encode(data)),
+            font_nr: Some(font_nr),
+            nulls: Some(nulls),
         });
         self.status_message = format!("Copied {actual_w}x{actual_h} region to clipboard");
     }
 
-    /// Paste clipboard data at `(target_x, target_y)`.
+    /// Paste clipboard data at `(target_x, target_y)` (matches C#
+    /// `PasteClipboardIntoView`): writes character codes and per-row font
+    /// assignment, skipping null cells and clipping to the 40×26 screen.
     pub fn paste_view_selection(&mut self, target_x: usize, target_y: usize) {
-        if let Some(clip) = self.clipboard.clone()
-            && let Some((w, h)) = clip.verify_width_height()
-        {
-            let chars_opt = clip.chars.as_deref().and_then(|s| hex::decode(s).ok());
-            let fonts_opt = clip.font_nr.as_deref().and_then(|s| hex::decode(s).ok());
+        let Some(clip) = self.clipboard.clone() else {
+            return;
+        };
+        let Some((w, h)) = clip.verify_width_height() else {
+            return;
+        };
 
-            if let Some(chars) = chars_opt {
-                self.push_view_undo();
-                for cy in 0..h {
-                    let vy = target_y + cy;
-                    if vy >= 26 {
-                        break;
-                    }
-                    if let Some(ref fonts) = fonts_opt
-                        && cy < fonts.len()
-                    {
-                        self.project.line_fonts[vy] = fonts[cy];
-                    }
-                    for cx in 0..w {
-                        let vx = target_x + cx;
-                        if vx >= 40 {
-                            break;
-                        }
-                        let src_idx = cy * w + cx;
-                        if src_idx < chars.len() {
-                            self.project.view_bytes[vy * 40 + vx] = chars[src_idx];
-                        }
-                    }
+        let Some(chars) = clip.chars.as_deref().and_then(|s| hex::decode(s).ok()) else {
+            return;
+        };
+
+        let font_chars: Vec<char> = clip.font_nr.as_deref().unwrap_or("").chars().collect();
+        let null_chars: Vec<char> = clip.nulls.as_deref().unwrap_or("").chars().collect();
+
+        self.push_view_undo();
+        for cy in 0..h {
+            let vy = target_y + cy;
+            if vy >= 26 {
+                break;
+            }
+            if let Some(&fc) = font_chars.get(cy)
+                && let Some(d) = fc.to_digit(10)
+                && (1..=4).contains(&d)
+            {
+                self.project.line_fonts[vy] = d as u8;
+            }
+            for cx in 0..w {
+                let vx = target_x + cx;
+                if vx >= 40 {
+                    break;
                 }
-                self.is_dirty = true;
-                self.status_message = format!("Pasted {w}x{h} region");
+                let src_idx = cy * w + cx;
+                if src_idx >= chars.len() {
+                    continue;
+                }
+                if null_chars.get(src_idx).copied().unwrap_or('0') == '1' {
+                    continue;
+                }
+                if self.skip_char_enabled && chars[src_idx] == self.skip_char_value {
+                    continue;
+                }
+                self.project.view_bytes[vy * 40 + vx] = chars[src_idx];
             }
         }
+        if !self.stay_in_paste_mode {
+            self.clear_megacopy_selection();
+        }
+        self.is_dirty = true;
+        self.status_message = format!("Pasted {w}x{h} region");
+    }
+
+    // ===================== MegaCopy =====================
+
+    pub fn begin_megacopy_selection(&mut self, x: usize, y: usize) {
+        let cx = x.min(39);
+        let cy = y.min(25);
+        self.megacopy_selection = Some((cx, cy, cx, cy));
+    }
+
+    pub fn update_megacopy_selection(&mut self, x: usize, y: usize) {
+        if let Some((x1, y1, _, _)) = self.megacopy_selection {
+            let cx = x.min(39);
+            let cy = y.min(25);
+            self.megacopy_selection = Some((x1, y1, cx, cy));
+        }
+    }
+
+    pub fn finish_megacopy_selection(&mut self, x: usize, y: usize) {
+        self.update_megacopy_selection(x, y);
+    }
+
+    pub fn clear_megacopy_selection(&mut self) {
+        self.megacopy_selection = None;
+    }
+
+    /// Normalized (inclusive) selection rectangle `(x, y, w, h)`.
+    pub fn megacopy_selection_rect(&self) -> Option<(usize, usize, usize, usize)> {
+        let (x1, y1, x2, y2) = self.megacopy_selection?;
+        let x = x1.min(x2);
+        let y = y1.min(y2);
+        let w = x1.abs_diff(x2) + 1;
+        let h = y1.abs_diff(y2) + 1;
+        Some((x, y, w, h))
+    }
+
+    /// Copy the current selection into the clipboard.
+    pub fn copy_megacopy_selection(&mut self) {
+        if let Some((x, y, w, h)) = self.megacopy_selection_rect() {
+            self.copy_view_selection(x, y, w, h);
+        }
+    }
+
+    /// Transform the clipboard glyph data (matches C# `ExecuteCopyArea*`).
+    pub fn transform_clipboard(&mut self, kind: ClipboardTransform) {
+        let Some(clip) = self.clipboard.clone() else {
+            return;
+        };
+        let Some((w, h)) = clip.verify_width_height() else {
+            return;
+        };
+        let Some(data_hex) = clip.data.clone() else {
+            return;
+        };
+        let Ok(glyphs) = hex::decode(&data_hex) else {
+            return;
+        };
+
+        let mut matrix = PixelMatrix::from_glyph_bytes(&glyphs, w, h);
+        let mode = self.render_color_mode();
+        let step = PixelMatrix::pixel_step_for_mode(mode);
+
+        match kind {
+            ClipboardTransform::ShiftLeft => matrix.shift_left(step),
+            ClipboardTransform::ShiftRight => matrix.shift_right(step),
+            ClipboardTransform::ShiftUp => matrix.shift_up(),
+            ClipboardTransform::ShiftDown => matrix.shift_down(),
+            ClipboardTransform::MirrorH => matrix.horizontal_mirror(mode),
+            ClipboardTransform::MirrorV => matrix.vertical_mirror(),
+            ClipboardTransform::Invert => matrix.invert(),
+            ClipboardTransform::RotateLeft => matrix.rotate_left(mode),
+            ClipboardTransform::RotateRight => matrix.rotate_right(mode),
+        }
+
+        let mut new_clip = clip;
+        new_clip.data = Some(hex::encode(matrix.to_glyph_bytes(w, h)));
+        self.clipboard = Some(new_clip);
+        self.status_message = "Transformed clipboard area".to_string();
+    }
+
+    /// Paste clipboard glyph data into a font bank (matches C#
+    /// `ExecuteClipboardInPlace`).
+    pub fn paste_clipboard_into_font(&mut self, font_nr: usize) {
+        let Some(clip) = self.clipboard.clone() else {
+            return;
+        };
+        let Some((w, h)) = clip.verify_width_height() else {
+            return;
+        };
+        let Some(chars) = clip.chars.as_deref().and_then(|s| hex::decode(s).ok()) else {
+            return;
+        };
+        let Some(data) = clip.data.as_deref().and_then(|s| hex::decode(s).ok()) else {
+            return;
+        };
+
+        let font_offset = (font_nr.saturating_sub(1) % 4) * 1024;
+        let font_bytes = self.fonts.as_bytes_mut();
+
+        let mut char_idx = 0;
+        let mut data_idx = 0;
+        for _y in 0..h {
+            for _x in 0..w {
+                let the_char = chars.get(char_idx).copied().unwrap_or(0);
+                char_idx += 1;
+                let glyph_offset = (the_char % 128) as usize * 8 + font_offset;
+                for k in 0..8 {
+                    let b = data.get(data_idx).copied().unwrap_or(0);
+                    data_idx += 1;
+                    if glyph_offset + k < 4096 {
+                        font_bytes[glyph_offset + k] = b;
+                    }
+                }
+            }
+        }
+
+        self.font_undo.add_to_undo_full_difference_scan(&self.fonts);
+        self.is_char_edited = false;
+        self.is_dirty = true;
+        self.render_full_atlas();
+        self.status_message = format!("Pasted clipboard glyphs into font {font_nr}");
+    }
+
+    pub fn toggle_skip_char(&mut self) {
+        self.skip_char_enabled = !self.skip_char_enabled;
+        self.status_message = format!(
+            "Skip char on copy/paste: {}",
+            if self.skip_char_enabled { "ON" } else { "OFF" }
+        );
+    }
+
+    pub fn set_skip_char_value(&mut self, val: u8) {
+        self.skip_char_value = val;
+        self.status_message = format!("Skip char set to #${:02X} ({})", val, val);
+    }
+
+    pub fn set_skip_char_from_selected(&mut self) {
+        let val = (self.selected_char_index % 256) as u8;
+        self.skip_char_value = val;
+        self.status_message = format!("Skip char picked: #${:02X} ({})", val, val);
+    }
+
+    pub fn toggle_stay_in_paste_mode(&mut self) {
+        self.stay_in_paste_mode = !self.stay_in_paste_mode;
+        self.status_message = format!(
+            "Stay in Paste Mode: {}",
+            if self.stay_in_paste_mode { "ON" } else { "OFF" }
+        );
+    }
+
+    pub fn set_paste_into_font_nr(&mut self, font_nr: usize) {
+        self.paste_into_font_nr = font_nr.clamp(1, 4);
+    }
+
+    pub fn paste_in_place(&mut self) {
+        let font_nr = self.paste_into_font_nr;
+        self.paste_clipboard_into_font(font_nr);
+    }
+
+    pub fn check_clipboard_all_unique(&self) -> bool {
+        let Some(clip) = &self.clipboard else {
+            return false;
+        };
+        let Some(chars_hex) = &clip.chars else {
+            return false;
+        };
+        let Ok(chars) = hex::decode(chars_hex) else {
+            return false;
+        };
+        if chars.is_empty() {
+            return false;
+        }
+        let mut seen = [false; 256];
+        for &ch in &chars {
+            if seen[ch as usize] {
+                return false;
+            }
+            seen[ch as usize] = true;
+        }
+        if let Some(font_nr) = &clip.font_nr
+            && !font_nr.is_empty()
+        {
+            let first = font_nr.chars().next().unwrap();
+            if !font_nr.chars().all(|c| c == first) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Keep `view_undo_buffers` aligned 1:1 with `project.pages`.
+    fn ensure_view_undo_buffers(&mut self) {
+        while self.view_undo_buffers.len() < self.project.pages.len() {
+            self.view_undo_buffers.push(ViewUndoBuffer::new());
+        }
+        self.view_undo_buffers.truncate(self.project.pages.len());
     }
 
     /// Save current view screen to current page, then switch to `page_idx`.
@@ -757,11 +1306,16 @@ impl GuiState {
             return;
         }
 
-        // 1. Save current page
+        self.ensure_view_undo_buffers();
+
+        // 1. Save current page (view + line fonts + per-page undo buffer)
         if self.active_page_index < self.project.pages.len() {
             self.project.pages[self.active_page_index].view = hex::encode(&self.project.view_bytes);
             self.project.pages[self.active_page_index].selected_font =
                 hex::encode(&self.project.line_fonts);
+            if self.active_page_index < self.view_undo_buffers.len() {
+                self.view_undo_buffers[self.active_page_index] = self.view_undo.clone();
+            }
         }
 
         // 2. Load next page
@@ -777,6 +1331,11 @@ impl GuiState {
         {
             self.project.line_fonts = fonts;
         }
+        self.view_undo = self
+            .view_undo_buffers
+            .get(page_idx)
+            .cloned()
+            .unwrap_or_else(ViewUndoBuffer::new);
 
         self.status_message = format!("Switched to Page {} ({})", page_idx + 1, page.name);
     }
@@ -797,6 +1356,7 @@ impl GuiState {
             height: 26,
         };
         self.project.pages.push(new_page);
+        self.ensure_view_undo_buffers();
         self.is_dirty = true;
         self.switch_to_page(nr - 1);
     }
@@ -806,26 +1366,201 @@ impl GuiState {
         if self.project.pages.len() <= 1 {
             return;
         }
+
+        self.ensure_view_undo_buffers();
+
+        // Remove the active page. The live view still holds the *deleted*
+        // page's content, which must NOT be saved onto the page that shifts
+        // into its slot (matches C# `ActionDeletePage` →
+        // `SwopPage(saveCurrent: false)`).
         self.project.pages.remove(self.active_page_index);
+        if self.active_page_index < self.view_undo_buffers.len() {
+            self.view_undo_buffers.remove(self.active_page_index);
+        }
         let next_idx = self
             .active_page_index
             .min(self.project.pages.len().saturating_sub(1));
         self.active_page_index = next_idx;
         self.is_dirty = true;
-        self.switch_to_page(next_idx);
+
+        // Load the target page WITHOUT saving the stale view.
+        let page = &self.project.pages[next_idx];
+        if let Ok(bytes) = hex::decode(&page.view)
+            && bytes.len() == 40 * 26
+        {
+            self.project.view_bytes = bytes;
+        }
+        if let Ok(fonts) = hex::decode(&page.selected_font)
+            && fonts.len() == 26
+        {
+            self.project.line_fonts = fonts;
+        }
+        self.view_undo = self
+            .view_undo_buffers
+            .get(next_idx)
+            .cloned()
+            .unwrap_or_else(ViewUndoBuffer::new);
+        self.status_message = format!("Deleted page; now on Page {}", next_idx + 1);
+    }
+
+    /// Rename the active page (matches C# `PageEditor.txtPageName_TextChanged`).
+    pub fn rename_page(&mut self, name: &str) {
+        let idx = self.active_page_index;
+        if idx >= self.project.pages.len() {
+            return;
+        }
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            self.status_message = "Page name cannot be empty".to_string();
+            return;
+        }
+        self.project.pages[idx].name = trimmed.to_string();
+        self.is_dirty = true;
+        self.status_message = format!("Renamed page to \"{trimmed}\"");
+    }
+
+    /// Move the active page up (`direction < 0`) or down (`direction > 0`) in
+    /// the page list, keeping it selected (matches C# `PageEditor.MoveSelectedItem`).
+    pub fn move_page(&mut self, direction: isize) {
+        let len = self.project.pages.len() as isize;
+        if len < 2 {
+            return;
+        }
+        let cur = self.active_page_index as isize;
+        let new = cur + direction;
+        if new < 0 || new >= len {
+            return;
+        }
+        self.ensure_view_undo_buffers();
+        self.project.pages.swap(cur as usize, new as usize);
+        self.view_undo_buffers.swap(cur as usize, new as usize);
+        self.active_page_index = new as usize;
+        self.is_dirty = true;
+        self.status_message = format!("Moved page to position {}", new + 1);
+    }
+
+    /// Restore the 10 selected color registers to their C# defaults
+    /// (matches the C# `SetupDefaultPalColors()` in `Colors.cs:513-522`).
+    pub fn restore_default_colors(&mut self) {
+        const DEFAULTS: [u8; 10] = [0x0E, 0x00, 0x28, 0xCA, 0x94, 0x46, 0x16, 0x1A, 0xB4, 0xBA];
+        self.project.colors = DEFAULTS;
+        self.save_current_color_set();
+        self.renderer.set_color_registers(self.project.colors);
+        self.render_full_atlas();
+        self.is_dirty = true;
+        self.status_message = "Restored default colors".to_string();
     }
 
     // =========================================================================
     // FILE OPERATIONS & EXPORTERS (Phase 18)
     // =========================================================================
 
-    /// Open a `.atrview` project from disk.
+    /// Open a `.atrview` project from disk, restoring the embedded fonts.
     pub fn open_project_file(&mut self, path: &Path) -> Result<(), AtrViewFormatError> {
+        self.open_project_file_inner(path, true)
+    }
+
+    /// Open a `.atrview` project from disk WITHOUT restoring the embedded fonts
+    /// (the C# `LoadViewFile` "No" path); fonts can be restored afterwards with
+    /// `load_fonts_from_project`.
+    pub fn open_project_file_without_fonts(
+        &mut self,
+        path: &Path,
+    ) -> Result<(), AtrViewFormatError> {
+        self.open_project_file_inner(path, false)
+    }
+
+    /// Open a `.atrview` project from disk.
+    ///
+    /// Restores view, colors, pages, and resets undo history and dirty state —
+    /// matching the C# `LoadViewFile(...)` lifecycle. When `load_fonts` is true
+    /// the embedded font banks are restored into the live font model; when false
+    /// the live fonts are left untouched (C# keeps the current fonts on "No").
+    fn open_project_file_inner(
+        &mut self,
+        path: &Path,
+        load_fonts: bool,
+    ) -> Result<(), AtrViewFormatError> {
         let mut file = std::fs::File::open(path)?;
         let project = AtrViewProject::load(&mut file)?;
+
+        // Restore the font banks into the live font model only when requested.
+        if load_fonts {
+            self.fonts
+                .as_bytes_mut()
+                .copy_from_slice(project.font_banks.as_bytes());
+        }
+
         self.project = project;
         self.project_path = Some(path.to_path_buf());
         self.active_page_index = 0;
+        self.is_char_edited = false;
+
+        // Match C# `BuildPageList`: a legacy file without `Pages` gets a single
+        // default page built from the loaded top-level view data.
+        if self.project.pages.is_empty() {
+            self.project.pages.push(SavedPageData {
+                nr: 1,
+                name: "Page 1".to_string(),
+                view: hex::encode(&self.project.view_bytes),
+                selected_font: hex::encode(&self.project.line_fonts),
+                width: self.project.width,
+                height: self.project.height,
+            });
+        }
+
+        // Restore the color mode (`ColoredGfx`) into the live GUI state.
+        // C# `SetupColorMode`: 0 = B/W, 2 = Mode 5, 3 = Mode 10, and
+        // everything else (1 and any invalid value) = Mode 4.
+        self.active_color_mode = match self.project.colored_gfx {
+            0 => 0,
+            2 => 2,
+            3 => 3,
+            _ => 1,
+        };
+
+        // Match C# `LoadViewFile` → `SwopPageAction(0)`: when the project has
+        // pages, Page 1 becomes the active view, regardless of which page was
+        // active when the project was saved. This loads Page 1 WITHOUT saving
+        // the just-parsed top-level view (which would otherwise overwrite
+        // `pages[0]`, the exact F1 corruption). When there are no pages, the
+        // top-level view is authoritative.
+        if let Some(first_page) = self.project.pages.first() {
+            if let Ok(bytes) = hex::decode(&first_page.view)
+                && bytes.len() == self.project.width * self.project.height
+            {
+                self.project.view_bytes = bytes;
+            }
+            if let Ok(fonts) = hex::decode(&first_page.selected_font)
+                && fonts.len() == self.project.height
+            {
+                self.project.line_fonts = fonts;
+            }
+        }
+
+        // Restore embedded tiles into the live TileSet, matching C#
+        // `TileSet.Setup()` + `TileSet.Load(tileData)` (each entry writes at
+        // `data.Nr`; absent/empty tiles are simply not present in the file).
+        self.tileset = TileSet::new();
+        for saved_t in &self.project.tiles {
+            if saved_t.nr < NUM_TILES_IN_SET {
+                self.tileset.tiles[saved_t.nr].load_saved(saved_t);
+            }
+        }
+        self.selected_tile_idx = 0;
+        self.tileset_scroll_offset = 0;
+        self.tile_undo = TileUndoBuffer::new();
+
+        // Reset undo history to the freshly loaded state.
+        self.font_undo = FontUndoBuffer::new();
+        self.font_undo.add_to_undo_initial(&self.fonts);
+        self.view_undo = ViewUndoBuffer::new();
+        self.view_undo_buffers = (0..self.project.pages.len().max(1))
+            .map(|_| ViewUndoBuffer::new())
+            .collect();
+
+        self.current_color_set_idx = 0;
+        self.save_current_color_set();
         self.renderer.set_color_registers(self.project.colors);
         self.render_full_atlas();
         self.is_dirty = false;
@@ -833,8 +1568,43 @@ impl GuiState {
         Ok(())
     }
 
+    /// Restore the embedded font banks of the just-opened project into the live
+    /// font model. Invoked when the user answers "Yes" to the C#
+    /// "load fonts embedded in this view file?" prompt.
+    pub fn load_fonts_from_project(&mut self) {
+        self.fonts
+            .as_bytes_mut()
+            .copy_from_slice(self.project.font_banks.as_bytes());
+        self.font_undo = FontUndoBuffer::new();
+        self.font_undo.add_to_undo_initial(&self.fonts);
+        self.render_full_atlas();
+        self.status_message = "Loaded fonts embedded in project".to_string();
+    }
+
     /// Save current project to specified path or current project path.
     pub fn save_project_file(&mut self, path: &Path) -> Result<(), AtrViewFormatError> {
+        // Persist live font edits into the project DTO before serializing.
+        // (Previously `project.font_banks` was never synced from `self.fonts`,
+        // so character/font edits were silently dropped on save.)
+        self.project
+            .font_banks
+            .as_bytes_mut()
+            .copy_from_slice(self.fonts.as_bytes());
+
+        // Persist the active color mode (`ColoredGfx`) before serializing.
+        // Matches C# `WhatColorModeToSave`: 0 = B/W, 1 = Mode 4, 2 = Mode 5, 3 = Mode 10.
+        self.project.colored_gfx = self.active_color_mode.min(3) as u8;
+
+        // Persist embedded tiles from the live TileSet into the project DTO.
+        // Matches C# `SaveViewFile`: iterate all 256 tiles, serializing only
+        // the non-empty ones (empty tiles return None and are skipped).
+        self.project.tiles = Vec::new();
+        for (i, tile) in self.tileset.tiles.iter().enumerate() {
+            if let Some(saved) = tile.to_saved(i) {
+                self.project.tiles.push(saved);
+            }
+        }
+
         // Sync active page before saving
         if self.active_page_index < self.project.pages.len() {
             self.project.pages[self.active_page_index].view = hex::encode(&self.project.view_bytes);
@@ -928,6 +1698,73 @@ impl GuiState {
             data_type,
             transpose,
         )
+    }
+
+    /// Generate a 24-bit BMP raster of a font bank selection.
+    ///
+    /// Re-renders the full atlas in the current color mode so that the sampled
+    /// region is always up to date, mirroring C# `ExportFontWindow.SaveFontBMP`.
+    pub fn export_font_bmp_bytes(&mut self, selection: FontSelection, as_color: bool) -> Vec<u8> {
+        self.render_full_atlas();
+        export_font_bmp(&self.atlas_buffer, selection, as_color)
+    }
+
+    /// Generate raw binary view bytes for a rectangular region, matching C#
+    /// `ExportViewWindow.SaveAsBinaryData`.
+    pub fn export_view_binary_bytes(&self, region: ViewExportRegion, transpose: bool) -> Vec<u8> {
+        export_view_binary(&self.project.view_bytes, 40, 26, region, transpose)
+    }
+
+    /// Generate raw (or ZX0-compressed) binary font bytes, matching C#
+    /// `ExportFontWindow.SaveBinaryData` / `GetFontData`.
+    pub fn export_font_binary_bytes(&self, selection: FontSelection, compress: bool) -> Vec<u8> {
+        export_font_binary(self.fonts.as_bytes(), selection, compress)
+    }
+
+    // =========================================================================
+    // LEGACY VIEW LOADING (Phase 21B-4)
+    // =========================================================================
+
+    /// Load a legacy `.vf2` or `.vfn` view file, matching C# `ActionLoadView`.
+    pub fn open_legacy_view_file(&mut self, path: &Path, is_vf2: bool) -> Result<(), String> {
+        let data = std::fs::read(path).map_err(|e| e.to_string())?;
+        let legacy = if is_vf2 {
+            parse_vf2(&data, &self.palette)?
+        } else {
+            parse_vfn(&data, &self.palette)?
+        };
+        self.apply_legacy_view(legacy);
+        self.status_message = format!("Loaded legacy view: {}", path.display());
+        Ok(())
+    }
+
+    /// Load raw `.dat` screen bytes into the view, matching C# `ActionLoadView`
+    /// (`.dat` branch): copies up to 40x26 bytes and leaves the rest untouched.
+    pub fn load_raw_view_bytes(&mut self, data: &[u8]) {
+        let count = data.len().min(40 * 26);
+        for (dst, &src) in self.project.view_bytes[..count].iter_mut().zip(data) {
+            *dst = src;
+        }
+        self.is_dirty = true;
+        self.status_message = format!("Loaded {count} bytes of raw view data");
+    }
+
+    fn apply_legacy_view(&mut self, legacy: LegacyView) {
+        self.active_color_mode = legacy.color_mode as usize;
+        for (slot, &color) in self.project.colors.iter_mut().zip(legacy.colors.iter()) {
+            *slot = color;
+        }
+        if let Some(line_fonts) = legacy.line_fonts {
+            for (dst, &src) in self.project.line_fonts.iter_mut().zip(line_fonts.iter()) {
+                *dst = src;
+            }
+        }
+        self.project.view_bytes = legacy.view.to_vec();
+        self.current_color_set_idx = 0;
+        self.save_current_color_set();
+        self.renderer.set_color_registers(self.project.colors);
+        self.render_full_atlas();
+        self.is_dirty = true;
     }
 
     // 3. DERIVED STATE HELPERS
@@ -1589,8 +2426,29 @@ impl GuiState {
     }
 
     // ==========================================
-    // View Actions Methods (Final Audit Parity)
+    // View Actions Methods (Final Audit Parity & Phase 21B-7 G-5)
     // ==========================================
+
+    pub fn current_view_area(&self) -> Option<ViewExportRegion> {
+        if let Some((x, y, w, h)) = self.megacopy_selection_rect() {
+            Some(ViewExportRegion {
+                rx: x,
+                ry: y,
+                rw: w,
+                rh: h,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn view_actions_area_text(&self) -> String {
+        if let Some(r) = self.current_view_area() {
+            format!("X:{} Y:{} W:{} H:{}", r.rx, r.ry, r.rw, r.rh)
+        } else {
+            String::new()
+        }
+    }
 
     pub fn open_view_actions(&mut self) {
         self.show_view_actions_dialog = true;
@@ -1604,12 +2462,15 @@ impl GuiState {
         self.fill_entire_view(0);
     }
 
+    pub fn clear_selected_area(&mut self) {
+        if let Some(region) = self.current_view_area() {
+            self.fill_view_area(region, 0);
+            self.status_message = "Cleared selected area (0)".to_string();
+        }
+    }
+
     pub fn fill_entire_view(&mut self, ch: u8) {
-        self.push_view_undo();
-        fill_area(
-            &mut self.project.view_bytes,
-            40,
-            26,
+        self.fill_view_area(
             ViewExportRegion {
                 rx: 0,
                 ry: 0,
@@ -1618,46 +2479,128 @@ impl GuiState {
             },
             ch,
         );
-        self.is_dirty = true;
         self.status_message = format!("Filled view with character ${:02X}", ch);
     }
 
-    pub fn replace_chars_in_view(&mut self, from_ch: u8, to_ch: u8) {
+    pub fn fill_selected_area(&mut self, ch: u8) {
+        if let Some(region) = self.current_view_area() {
+            self.fill_view_area(region, ch);
+            self.status_message = format!("Filled area with character ${:02X}", ch);
+        }
+    }
+
+    pub fn fill_view_area(&mut self, region: ViewExportRegion, ch: u8) {
         self.push_view_undo();
-        replace_char_x_with_y(
-            &mut self.project.view_bytes,
-            40,
-            26,
+        fill_area(&mut self.project.view_bytes, 40, 26, region, ch);
+        self.is_dirty = true;
+    }
+
+    pub fn replace_chars_in_view(&mut self, from_ch: u8, to_ch: u8, fonts: [bool; 4]) {
+        self.replace_chars_in_view_area(
             ViewExportRegion {
                 rx: 0,
                 ry: 0,
                 rw: 40,
                 rh: 26,
             },
+            from_ch,
+            to_ch,
+            fonts,
+        );
+        self.status_message = format!(
+            "Replaced character ${:02X} with ${:02X} in view",
+            from_ch, to_ch
+        );
+    }
+
+    pub fn replace_chars_in_area(&mut self, from_ch: u8, to_ch: u8, fonts: [bool; 4]) {
+        if let Some(region) = self.current_view_area() {
+            self.replace_chars_in_view_area(region, from_ch, to_ch, fonts);
+            self.status_message = format!(
+                "Replaced character ${:02X} with ${:02X} in area",
+                from_ch, to_ch
+            );
+        }
+    }
+
+    pub fn replace_chars_in_view_area(
+        &mut self,
+        region: ViewExportRegion,
+        from_ch: u8,
+        to_ch: u8,
+        fonts: [bool; 4],
+    ) {
+        if from_ch == to_ch || !fonts.iter().any(|&f| f) {
+            return;
+        }
+        self.push_view_undo();
+        replace_char_x_with_y(
+            &mut self.project.view_bytes,
+            40,
+            26,
+            region,
             ViewReplaceOptions {
                 char_x: from_ch,
                 char_y: to_ch,
-                active_fonts: [true, true, true, true],
+                active_fonts: fonts,
             },
             &self.project.line_fonts,
         );
         self.is_dirty = true;
-        self.status_message = format!("Replaced character ${:02X} with ${:02X}", from_ch, to_ch);
     }
 
     pub fn shift_entire_view(&mut self, dx: isize, dy: isize) {
-        self.push_view_undo();
-        let mut new_bytes = [0u8; 1040];
-        for y in 0..26 {
-            let ny = (y as isize + dy).rem_euclid(26) as usize;
-            for x in 0..40 {
-                let nx = (x as isize + dx).rem_euclid(40) as usize;
-                new_bytes[ny * 40 + nx] = self.project.view_bytes[y * 40 + x];
-            }
+        let direction = if dy < 0 {
+            AreaShiftDirection::Up
+        } else if dy > 0 {
+            AreaShiftDirection::Down
+        } else if dx < 0 {
+            AreaShiftDirection::Left
+        } else {
+            AreaShiftDirection::Right
+        };
+        self.shift_view_area(
+            ViewExportRegion {
+                rx: 0,
+                ry: 0,
+                rw: 40,
+                rh: 26,
+            },
+            direction,
+        );
+        self.status_message = format!("Shifted view ({dx}, {dy})");
+    }
+
+    pub fn shift_selected_area(&mut self, direction: AreaShiftDirection) {
+        if let Some(region) = self.current_view_area() {
+            self.shift_view_area(region, direction);
+            self.status_message = format!("Shifted area {:?}", direction);
         }
-        self.project.view_bytes = new_bytes.to_vec();
+    }
+
+    pub fn shift_view_area(&mut self, region: ViewExportRegion, direction: AreaShiftDirection) {
+        self.push_view_undo();
+        shift_area(&mut self.project.view_bytes, 40, 26, region, direction);
         self.is_dirty = true;
-        self.status_message = format!("Shifted view by ({dx}, {dy})");
+    }
+
+    pub fn set_view_actions_fill_from_selected(&mut self) {
+        self.view_actions_fill_char = (self.selected_char_index % 256) as u8;
+    }
+
+    pub fn set_view_actions_replace_from_selected(&mut self) {
+        self.view_actions_replace_from = (self.selected_char_index % 256) as u8;
+    }
+
+    pub fn set_view_actions_replace_to_selected(&mut self) {
+        self.view_actions_replace_to = (self.selected_char_index % 256) as u8;
+    }
+
+    pub fn toggle_view_actions_font_filter(&mut self, font_nr: usize) {
+        if (1..=4).contains(&font_nr) {
+            self.view_actions_font_filters[font_nr - 1] =
+                !self.view_actions_font_filters[font_nr - 1];
+        }
     }
 
     // ==========================================
@@ -1705,8 +2648,29 @@ impl GuiState {
     // Focus, Keyboard & Escape Handling (Phase 20)
     // ==========================================
 
+    /// Show the destructive-operation confirmation dialog, staging the given
+    /// action for execution on "Yes" and discarding it on "No"/"Cancel".
+    pub fn request_confirm(&mut self, action: PendingAction, title: &str, message: &str) {
+        self.pending_action = Some(action);
+        self.confirm_title = title.to_string();
+        self.confirm_message = message.to_string();
+        self.show_confirm_dialog = true;
+    }
+
+    /// Dismiss the confirmation dialog without executing the pending action
+    /// (equivalent to C# `DialogResult.No`/Cancel). The staged action is dropped
+    /// and the application state is left unchanged.
+    pub fn cancel_confirm(&mut self) {
+        self.pending_action = None;
+        self.show_confirm_dialog = false;
+    }
+
     pub fn escape_pressed(&mut self) {
-        if self.show_color_selector {
+        if self.show_confirm_dialog {
+            self.cancel_confirm();
+        } else if self.show_file_picker {
+            self.show_file_picker = false;
+        } else if self.show_color_selector {
             self.show_color_selector = false;
         } else if self.show_export_font_dialog {
             self.show_export_font_dialog = false;
@@ -1722,9 +2686,16 @@ impl GuiState {
             self.show_view_actions_dialog = false;
         } else if self.show_import_view_dialog {
             self.show_import_view_dialog = false;
+        } else if self.show_enter_text_dialog {
+            self.show_enter_text_dialog = false;
         } else if self.is_megacopy_active {
-            self.is_megacopy_active = false;
-            self.status_message = "MegaCopy mode cancelled".to_string();
+            if self.megacopy_selection.is_some() {
+                self.clear_megacopy_selection();
+                self.status_message = "MegaCopy selection cleared".to_string();
+            } else {
+                self.is_megacopy_active = false;
+                self.status_message = "MegaCopy mode cancelled".to_string();
+            }
         }
     }
 

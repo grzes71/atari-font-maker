@@ -1,68 +1,159 @@
 import { Button } from "std-widgets.slint";
 
 export component MenuBar inherits Rectangle {
-    height: 28px;
+    height: 56px;
     background: #2b2b2b;
 
     callback new_clicked();
     callback open_project_clicked();
     callback save_project_clicked();
+    callback save_as_clicked();
     callback export_font_clicked();
     callback export_view_clicked();
     callback import_view_clicked();
     callback view_actions_clicked();
     callback analysis_clicked();
     callback tileset_clicked();
+    callback enter_text_clicked();
     callback preferences_clicked();
     callback undo_clicked();
     callback redo_clicked();
     callback about_clicked();
 
-    HorizontalLayout {
-        padding_left: 8px;
-        padding_right: 8px;
-        spacing: 4px;
-        alignment: start;
+    callback open_font_clicked(int);
+    callback save_font_clicked(int);
+    callback open_palette_clicked();
+    callback save_palette_clicked();
+    callback open_tile_clicked();
+    callback save_tile_clicked();
+    callback open_tileset_clicked();
+    callback save_tileset_clicked();
 
-        Button {
-            text: "📄 New";
-            clicked => { root.new_clicked(); }
+    VerticalLayout {
+        spacing: 2px;
+        padding_top: 2px;
+        padding_bottom: 2px;
+
+        // Row 1 — Project & Dialog windows
+        HorizontalLayout {
+            padding_left: 8px;
+            padding_right: 8px;
+            spacing: 4px;
+            alignment: start;
+
+            Button {
+                text: "📄 New";
+                clicked => { root.new_clicked(); }
+            }
+            Button {
+                text: "📂 Open";
+                clicked => { root.open_project_clicked(); }
+            }
+            Button {
+                text: "💾 Save";
+                clicked => { root.save_project_clicked(); }
+            }
+            Button {
+                text: "Save As";
+                clicked => { root.save_as_clicked(); }
+            }
+            Button {
+                text: "🔤 Export Font...";
+                clicked => { root.export_font_clicked(); }
+            }
+            Button {
+                text: "🖥️ Export View...";
+                clicked => { root.export_view_clicked(); }
+            }
+            Button {
+                text: "📥 Import View...";
+                clicked => { root.import_view_clicked(); }
+            }
+            Button {
+                text: "🛠️ View Actions...";
+                clicked => { root.view_actions_clicked(); }
+            }
+            Button {
+                text: "📊 Analysis...";
+                clicked => { root.analysis_clicked(); }
+            }
+            Button {
+                text: "🧩 TileSet...";
+                clicked => { root.tileset_clicked(); }
+            }
+            Button {
+                text: "📝 Enter Text...";
+                clicked => { root.enter_text_clicked(); }
+            }
+            Button {
+                text: "⚙ Preferences...";
+                clicked => { root.preferences_clicked(); }
+            }
         }
-        Button {
-            text: "📂 Open";
-            clicked => { root.open_project_clicked(); }
-        }
-        Button {
-            text: "💾 Save";
-            clicked => { root.save_project_clicked(); }
-        }
-        Button {
-            text: "🔤 Export Font...";
-            clicked => { root.export_font_clicked(); }
-        }
-        Button {
-            text: "🖥️ Export View...";
-            clicked => { root.export_view_clicked(); }
-        }
-        Button {
-            text: "📥 Import View...";
-            clicked => { root.import_view_clicked(); }
-        }
-        Button {
-            text: "🛠️ View Actions...";
-            clicked => { root.view_actions_clicked(); }
-        }
-        Button {
-            text: "📊 Analysis...";
-            clicked => { root.analysis_clicked(); }
-        }
-        Button {
-            text: "🧩 TileSet...";
-            clicked => { root.tileset_clicked(); }
-        }
-        Button {
-            text: "⚙ Preferences...";
-            clicked => { root.preferences_clicked(); }
+
+        // Row 2 — Font / Palette / Tile file I/O
+        HorizontalLayout {
+            padding_left: 8px;
+            padding_right: 8px;
+            spacing: 4px;
+            alignment: start;
+
+            Button {
+                text: "Font 1 ⇧";
+                clicked => { root.open_font_clicked(1); }
+            }
+            Button {
+                text: "Font 2 ⇧";
+                clicked => { root.open_font_clicked(2); }
+            }
+            Button {
+                text: "Font 3 ⇧";
+                clicked => { root.open_font_clicked(3); }
+            }
+            Button {
+                text: "Font 4 ⇧";
+                clicked => { root.open_font_clicked(4); }
+            }
+            Button {
+                text: "Font 1 ⇩";
+                clicked => { root.save_font_clicked(1); }
+            }
+            Button {
+                text: "Font 2 ⇩";
+                clicked => { root.save_font_clicked(2); }
+            }
+            Button {
+                text: "Font 3 ⇩";
+                clicked => { root.save_font_clicked(3); }
+            }
+            Button {
+                text: "Font 4 ⇩";
+                clicked => { root.save_font_clicked(4); }
+            }
+            Button {
+                text: "Open PAL";
+                clicked => { root.open_palette_clicked(); }
+            }
+            Button {
+                text: "Save PAL";
+                clicked => { root.save_palette_clicked(); }
+            }
+            Button {
+                text: "Open Tile";
+                clicked => { root.open_tile_clicked(); }
+            }
+            Button {
+                text: "Save Tile";
+                clicked => { root.save_tile_clicked(); }
+            }
+            Button {
+                text: "Open TileSet";
+                clicked => { root.open_tileset_clicked(); }
+            }
+            Button {
+                text: "Save TileSet";
+                clicked => { root.save_tileset_clicked(); }
+            }
         }
     }
 }

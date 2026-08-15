@@ -2,6 +2,7 @@
 
 pub mod analysis;
 pub mod codecs;
+pub mod compress;
 pub mod constants;
 pub mod error;
 pub mod exporters;

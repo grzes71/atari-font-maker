@@ -9,9 +9,12 @@ export component PaletteBar inherits Rectangle {
     in property <[color]> register_colors;
     in property <int> selected_reg: 1;
     in property <int> active_mode: 0;
+    in property <int> selected_colorset_idx: 0;
 
     callback register_clicked(int);
     callback open_palette_dialog();
+    callback restore_defaults();
+    callback colorset_selected(int);
 
     HorizontalLayout {
         padding_left: 12px;
@@ -170,6 +173,60 @@ export component PaletteBar inherits Rectangle {
         Button {
             text: "🎨 Atari Color Picker";
             clicked => { root.open_palette_dialog(); }
+        }
+
+        Button {
+            text: "↺ Restore Colors";
+            clicked => { root.restore_defaults(); }
+        }
+
+        Rectangle { width: 10px; }
+
+        Text {
+            text: "ColorSet:";
+            color: #aaaaaa;
+            font_size: 11px;
+            font_weight: 700;
+            vertical_alignment: center;
+        }
+
+        Button {
+            text: root.selected_colorset_idx == 0 ? "Project colors" : ("Alt colors " + root.selected_colorset_idx);
+            clicked => { root.colorset_selected(Math.mod(root.selected_colorset_idx + 1, 6)); }
+        }
+
+        HorizontalLayout {
+            spacing: 2px;
+            Button {
+                text: "P";
+                width: 24px;
+                clicked => { root.colorset_selected(0); }
+            }
+            Button {
+                text: "A1";
+                width: 24px;
+                clicked => { root.colorset_selected(1); }
+            }
+            Button {
+                text: "A2";
+                width: 24px;
+                clicked => { root.colorset_selected(2); }
+            }
+            Button {
+                text: "A3";
+                width: 24px;
+                clicked => { root.colorset_selected(3); }
+            }
+            Button {
+                text: "A4";
+                width: 24px;
+                clicked => { root.colorset_selected(4); }
+            }
+            Button {
+                text: "A5";
+                width: 24px;
+                clicked => { root.colorset_selected(5); }
+            }
         }
     }
 }

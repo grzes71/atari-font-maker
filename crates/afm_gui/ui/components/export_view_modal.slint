@@ -1,4 +1,4 @@
-import { Button, ComboBox, CheckBox } from "std-widgets.slint";
+import { Button, ComboBox, CheckBox, SpinBox } from "std-widgets.slint";
 
 export component ExportViewModal inherits Rectangle {
     in property <bool> is_open: false;
@@ -6,10 +6,17 @@ export component ExportViewModal inherits Rectangle {
     in property <int> selected_format: 0;
     in property <int> selected_data_type: 0;
     in property <bool> transpose_flag: false;
+    in property <int> from_x: 0;
+    in property <int> from_y: 0;
+    in property <int> region_width: 40;
+    in property <int> region_height: 26;
+    in property <string> dimensions_label: "(0, 0) - (40, 26) @ 1040 bytes";
 
     callback format_changed(int);
     callback data_type_changed(int);
     callback transpose_toggled(bool);
+    callback region_changed(int, int, int, int);
+    callback reset_region_clicked();
     callback export_clicked();
     callback copy_clipboard_clicked();
     callback close_clicked();
@@ -20,8 +27,8 @@ export component ExportViewModal inherits Rectangle {
         TouchArea {} // Block click-through
 
         Rectangle {
-            width: 580px;
-            height: 520px;
+            width: 620px;
+            height: 560px;
             background: #242424;
             border_width: 2px;
             border_color: #00d2ff;
@@ -42,9 +49,78 @@ export component ExportViewModal inherits Rectangle {
                         vertical_alignment: center;
                     }
                     Rectangle { horizontal_stretch: 1; }
+                    Text {
+                        text: root.dimensions_label;
+                        color: #dcdcaa;
+                        font_size: 11px;
+                        font_weight: 600;
+                        vertical_alignment: center;
+                    }
+                    Rectangle { width: 12px; }
                     Button {
                         text: "✕";
                         clicked => { root.close_clicked(); }
+                    }
+                }
+
+                // Sub-Region Selection Row
+                Rectangle {
+                    background: #1e1e1e;
+                    border_color: #3e3e42;
+                    border_width: 1px;
+                    border_radius: 4px;
+
+                    HorizontalLayout {
+                        padding: 8px;
+                        spacing: 8px;
+                        alignment: center;
+
+                        Text { text: "From X:"; color: #aaaaaa; font_size: 11px; vertical_alignment: center; }
+                        SpinBox {
+                            minimum: 0;
+                            maximum: 39;
+                            value: root.from_x;
+                            edited => {
+                                root.region_changed(self.value, root.from_y, root.region_width, root.region_height);
+                            }
+                        }
+
+                        Text { text: "From Y:"; color: #aaaaaa; font_size: 11px; vertical_alignment: center; }
+                        SpinBox {
+                            minimum: 0;
+                            maximum: 25;
+                            value: root.from_y;
+                            edited => {
+                                root.region_changed(root.from_x, self.value, root.region_width, root.region_height);
+                            }
+                        }
+
+                        Text { text: "Width:"; color: #aaaaaa; font_size: 11px; vertical_alignment: center; }
+                        SpinBox {
+                            minimum: 1;
+                            maximum: 40;
+                            value: root.region_width;
+                            edited => {
+                                root.region_changed(root.from_x, root.from_y, self.value, root.region_height);
+                            }
+                        }
+
+                        Text { text: "Height:"; color: #aaaaaa; font_size: 11px; vertical_alignment: center; }
+                        SpinBox {
+                            minimum: 1;
+                            maximum: 26;
+                            value: root.region_height;
+                            edited => {
+                                root.region_changed(root.from_x, root.from_y, root.region_width, self.value);
+                            }
+                        }
+
+                        Button {
+                            text: "Full View";
+                            clicked => {
+                                root.reset_region_clicked();
+                            }
+                        }
                     }
                 }
 
@@ -57,7 +133,7 @@ export component ExportViewModal inherits Rectangle {
                         spacing: 4px;
                         Text { text: "Format:"; color: #aaaaaa; font_size: 11px; }
                         ComboBox {
-                            model: ["Assembler", "Action!", "Atari BASIC", "FastBasic", "MADS .dta", "C Data Array", "Mad-Pascal Array"];
+                            model: ["Assembler", "Action!", "Atari BASIC", "FastBasic", "MADS .dta", "C Data Array", "Mad-Pascal Array", "Binary Data"];
                             current_index: root.selected_format;
                             selected(val) => {
                                 root.format_changed(self.current_index);

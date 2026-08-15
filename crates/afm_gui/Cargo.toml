@@ -7,6 +7,8 @@ edition = "2024"
 afm_core = { path = "../afm_core" }
 slint = "1.9"
 hex = "0.4"
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+arboard = "3"
 
 [build-dependencies]
 slint-build = "1.9"

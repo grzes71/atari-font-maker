@@ -1,0 +1,66 @@
+import { Button } from "std-widgets.slint";
+
+export component ConfirmDialog inherits Rectangle {
+    in property <bool> is_open: false;
+    in property <string> title: "";
+    in property <string> message: "";
+
+    callback confirmed();
+    callback cancelled();
+
+    visible: root.is_open;
+    background: #000000aa;
+
+    Rectangle {
+        width: 520px;
+        height: 200px;
+        background: #252526;
+        border-color: #e2c08d;
+        border-width: 2px;
+        border-radius: 6px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            // Title
+            HorizontalLayout {
+                Text {
+                    text: "⚠ " + root.title;
+                    color: #ffffff;
+                    font_size: 15px;
+                    font_weight: 700;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+
+            // Message
+            Text {
+                text: root.message;
+                color: #e0e0e0;
+                font_size: 13px;
+                wrap: word-wrap;
+                vertical-stretch: 1;
+            }
+
+            // Actions
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+
+                Button {
+                    text: "No";
+                    clicked => { root.cancelled(); }
+                }
+                Button {
+                    text: "Yes";
+                    primary: true;
+                    clicked => { root.confirmed(); }
+                }
+            }
+        }
+    }
+}

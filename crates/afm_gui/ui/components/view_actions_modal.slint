@@ -1,26 +1,44 @@
-import { Button } from "std-widgets.slint";
+import { Button, CheckBox } from "std-widgets.slint";
 
 export component ViewActionsModal inherits Rectangle {
     in property <bool> is_open: false;
+    in property <bool> has_area_selection: false;
+    in property <string> area_info_text: "";
     in property <int> fill_char_code: 0;
     in property <int> replace_from_char: 0;
     in property <int> replace_to_char: 0;
+    in property <bool> filter_font1: true;
+    in property <bool> filter_font2: true;
+    in property <bool> filter_font3: true;
+    in property <bool> filter_font4: true;
+    property <bool> can_replace: root.replace_from_char != root.replace_to_char && (root.filter_font1 || root.filter_font2 || root.filter_font3 || root.filter_font4);
 
     callback close_clicked();
     callback clear_view_clicked();
+    callback clear_area_clicked();
     callback fill_view_clicked(int);
-    callback replace_chars_clicked(int, int);
+    callback fill_area_clicked(int);
+    callback replace_in_view_clicked(int, int, bool, bool, bool, bool);
+    callback replace_in_area_clicked(int, int, bool, bool, bool, bool);
     callback shift_view_up();
     callback shift_view_down();
     callback shift_view_left();
     callback shift_view_right();
+    callback shift_area_up();
+    callback shift_area_down();
+    callback shift_area_left();
+    callback shift_area_right();
+    callback set_fill_from_selected();
+    callback set_replace_from_selected();
+    callback set_replace_to_selected();
+    callback toggle_font_filter(int);
 
     visible: root.is_open;
     background: #00000088;
 
     Rectangle {
-        width: 480px;
-        height: 380px;
+        width: 540px;
+        height: 520px;
         background: #252526;
         border-color: #007acc;
         border-width: 2px;
@@ -29,19 +47,25 @@ export component ViewActionsModal inherits Rectangle {
         drop-shadow-color: #000000aa;
 
         VerticalLayout {
-            padding: 16px;
-            spacing: 12px;
+            padding: 14px;
+            spacing: 10px;
 
             // Title Bar
             HorizontalLayout {
                 Text {
-                    text: "🛠️ Atari View Actions & Operations";
+                    text: "🛠️ Atari View Actions & Area Operations";
                     font-size: 14px;
                     font-weight: 700;
                     color: #ffffff;
                     vertical-alignment: center;
                 }
                 Rectangle { horizontal-stretch: 1; }
+                if root.has_area_selection: Text {
+                    text: root.area_info_text;
+                    color: #4ec9b0;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
                 TouchArea {
                     width: 28px;
                     height: 24px;
@@ -68,30 +92,45 @@ export component ViewActionsModal inherits Rectangle {
                 border-color: #3e3e42;
                 border-width: 1px;
                 border-radius: 4px;
-                height: 80px;
 
                 VerticalLayout {
                     padding: 8px;
-                    spacing: 8px;
+                    spacing: 6px;
 
                     Text {
-                        text: "Clear & Fill Operations (Active Page):";
+                        text: "🧹 Clear & Fill (Active Page):";
                         color: #dcdcaa;
                         font-size: 11px;
                         font-weight: 600;
                     }
 
                     HorizontalLayout {
-                        spacing: 10px;
-
+                        spacing: 8px;
                         Button {
-                            text: "🧹 Clear Entire View (0)";
+                            text: "Clear Entire View (0)";
                             clicked => { root.clear_view_clicked(); }
                         }
-
                         Button {
-                            text: "🎨 Fill View with Char $" + (root.fill_char_code < 16 ? "0" : "") + (root.fill_char_code);
+                            text: "Clear Selected Area (0)";
+                            enabled: root.has_area_selection;
+                            clicked => { root.clear_area_clicked(); }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: "Fill View ($" + (root.fill_char_code < 16 ? "0" : "") + (root.fill_char_code) + ")";
                             clicked => { root.fill_view_clicked(root.fill_char_code); }
+                        }
+                        Button {
+                            text: "Fill Area ($" + (root.fill_char_code < 16 ? "0" : "") + (root.fill_char_code) + ")";
+                            enabled: root.has_area_selection;
+                            clicked => { root.fill_area_clicked(root.fill_char_code); }
+                        }
+                        Button {
+                            text: "Set Fill Char 🎯";
+                            clicked => { root.set_fill_from_selected(); }
                         }
                     }
                 }
@@ -103,44 +142,13 @@ export component ViewActionsModal inherits Rectangle {
                 border-color: #3e3e42;
                 border-width: 1px;
                 border-radius: 4px;
-                height: 80px;
 
                 VerticalLayout {
                     padding: 8px;
-                    spacing: 8px;
+                    spacing: 6px;
 
                     Text {
-                        text: "Replace Character in View:";
-                        color: #dcdcaa;
-                        font-size: 11px;
-                        font-weight: 600;
-                    }
-
-                    HorizontalLayout {
-                        spacing: 10px;
-
-                        Button {
-                            text: "🔄 Replace Selected Char with Space";
-                            clicked => { root.replace_chars_clicked(root.replace_from_char, 0); }
-                        }
-                    }
-                }
-            }
-
-            // Area Shifting Section
-            Rectangle {
-                background: #1e1e1e;
-                border-color: #3e3e42;
-                border-width: 1px;
-                border-radius: 4px;
-                height: 80px;
-
-                VerticalLayout {
-                    padding: 8px;
-                    spacing: 8px;
-
-                    Text {
-                        text: "Shift Entire View (40×26):";
+                        text: "🔄 Replace Character (From $" + (root.replace_from_char < 16 ? "0" : "") + (root.replace_from_char) + " ➜ To $" + (root.replace_to_char < 16 ? "0" : "") + (root.replace_to_char) + "):";
                         color: #dcdcaa;
                         font-size: 11px;
                         font-weight: 600;
@@ -148,11 +156,112 @@ export component ViewActionsModal inherits Rectangle {
 
                     HorizontalLayout {
                         spacing: 8px;
+                        Button {
+                            text: "Pick 'From' 🎯";
+                            clicked => { root.set_replace_from_selected(); }
+                        }
+                        Button {
+                            text: "Pick 'To' 🎯";
+                            clicked => { root.set_replace_to_selected(); }
+                        }
+                        CheckBox {
+                            text: "F1";
+                            checked: root.filter_font1;
+                            toggled => { root.toggle_font_filter(1); }
+                        }
+                        CheckBox {
+                            text: "F2";
+                            checked: root.filter_font2;
+                            toggled => { root.toggle_font_filter(2); }
+                        }
+                        CheckBox {
+                            text: "F3";
+                            checked: root.filter_font3;
+                            toggled => { root.toggle_font_filter(3); }
+                        }
+                        CheckBox {
+                            text: "F4";
+                            checked: root.filter_font4;
+                            toggled => { root.toggle_font_filter(4); }
+                        }
+                    }
 
-                        Button { text: "⬅ Shift Left"; clicked => { root.shift_view_left(); } }
-                        Button { text: "➡ Shift Right"; clicked => { root.shift_view_right(); } }
-                        Button { text: "⬆ Shift Up"; clicked => { root.shift_view_up(); } }
-                        Button { text: "⬇ Shift Down"; clicked => { root.shift_view_down(); } }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: "Replace in View";
+                            enabled: root.can_replace;
+                            clicked => {
+                                root.replace_in_view_clicked(
+                                    root.replace_from_char,
+                                    root.replace_to_char,
+                                    root.filter_font1,
+                                    root.filter_font2,
+                                    root.filter_font3,
+                                    root.filter_font4
+                                );
+                            }
+                        }
+                        Button {
+                            text: "Replace in Area";
+                            enabled: root.has_area_selection && root.can_replace;
+                            clicked => {
+                                root.replace_in_area_clicked(
+                                    root.replace_from_char,
+                                    root.replace_to_char,
+                                    root.filter_font1,
+                                    root.filter_font2,
+                                    root.filter_font3,
+                                    root.filter_font4
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // View & Area Shift Section
+            Rectangle {
+                background: #1e1e1e;
+                border-color: #3e3e42;
+                border-width: 1px;
+                border-radius: 4px;
+
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 6px;
+
+                    Text {
+                        text: "↔️ Circular Shifts (View & Area):";
+                        color: #dcdcaa;
+                        font-size: 11px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: "Entire View (40×26):";
+                        color: #9cdcfe;
+                        font-size: 10px;
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Button { text: "⬅ Left"; clicked => { root.shift_view_left(); } }
+                        Button { text: "➡ Right"; clicked => { root.shift_view_right(); } }
+                        Button { text: "⬆ Up"; clicked => { root.shift_view_up(); } }
+                        Button { text: "⬇ Down"; clicked => { root.shift_view_down(); } }
+                    }
+
+                    Text {
+                        text: "Selected Area:";
+                        color: #9cdcfe;
+                        font-size: 10px;
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Button { text: "⬅ Area Left"; enabled: root.has_area_selection; clicked => { root.shift_area_left(); } }
+                        Button { text: "➡ Area Right"; enabled: root.has_area_selection; clicked => { root.shift_area_right(); } }
+                        Button { text: "⬆ Area Up"; enabled: root.has_area_selection; clicked => { root.shift_area_up(); } }
+                        Button { text: "⬇ Area Down"; enabled: root.has_area_selection; clicked => { root.shift_area_down(); } }
                     }
                 }
             }
