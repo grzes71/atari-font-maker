@@ -1,6 +1,7 @@
 import { Button, CheckBox, ComboBox, Slider } from "std-widgets.slint";
 import { WButton } from "components/wbutton.slint";
 import { WCheckBox } from "components/wcheckbox.slint";
+import { WRadioButton } from "components/wradiobutton.slint";
 import { MenuBar } from "components/menu_bar.slint";
 import { Toolbar } from "components/toolbar.slint";
 import { CharEditorPanel } from "components/char_editor_panel.slint";
@@ -843,7 +844,7 @@ export component MainWindow inherits Window {
             border-width: 1px;
             border-color: #7f7f7f;
 
-            WButton { x: 1px; y: 6px; width: 99px; height: 25px; text: "Change GFX";
+            WButton { x: 1px; y: 5px; width: 99px; height: 22px; text: "Change GFX";
                 clicked => {
                     if root.active_color_mode == 0 {
                         root.change_color_mode(root.last_color_mode == 0 ? 1 : root.last_color_mode);
@@ -852,24 +853,35 @@ export component MainWindow inherits Window {
                         root.change_color_mode(0);
                     }
                 } }
-            ComboBox { x: 2px; y: 33px; width: 98px; height: 21px;
-                model: ["Mode 4 (5 cols)","Mode 5 (5 cols)","Mode 10 (9 cols)"];
-                current_index: root.active_color_mode == 0 ? 0 : root.active_color_mode - 1;
-                selected(v) => {
-                    root.last_color_mode = self.current_index + 1;
-                    root.change_color_mode(self.current_index + 1);
+            WRadioButton { x: 2px; y: 28px; width: 98px; height: 14px; text: "Mode 4";
+                checked: root.active_color_mode == 1;
+                clicked => {
+                    root.last_color_mode = 1;
+                    root.change_color_mode(1);
+                } }
+            WRadioButton { x: 2px; y: 42px; width: 98px; height: 14px; text: "Mode 5";
+                checked: root.active_color_mode == 2;
+                clicked => {
+                    root.last_color_mode = 2;
+                    root.change_color_mode(2);
+                } }
+            WRadioButton { x: 2px; y: 56px; width: 98px; height: 14px; text: "Mode 10";
+                checked: root.active_color_mode == 3;
+                clicked => {
+                    root.last_color_mode = 3;
+                    root.change_color_mode(3);
                 } }
 
-            // Bevel4 frame + 90x90 palette
+            // Bevel4 frame + palette (5 rows of 16px swatches)
             Rectangle {
-                x: 5px; y: 58px; width: 92px; height: 92px;
+                x: 5px; y: 72px; width: 92px; height: 82px;
                 background: #f0f0f0;
                 border-width: 1px;
                 border-color: #7f7f7f;
                 for a in 5 : Rectangle {
-                    y: a * 18px; width: 90px; height: 22px;
+                    y: a * 16px; width: 90px; height: 16px;
                     for b in 2 : Rectangle {
-                        x: b * 45px; width: 45px; height: 22px;
+                        x: b * 45px; width: 45px; height: 16px;
                         background: root.palette_reg_colors[a * 2 + b];
                         visible: root.active_color_mode == 3 || a < 3;
                         Text { text: root.palette_label(a * 2 + b, root.active_color_mode == 3);
@@ -881,15 +893,15 @@ export component MainWindow inherits Window {
                 }
             }
 
-            ComboBox { x: 5px; y: 154px; width: 92px; height: 21px;
+            ComboBox { x: 5px; y: 156px; width: 92px; height: 21px;
                 model: ["Project colors","Alt colors 1","Alt colors 2","Alt colors 3","Alt colors 4","Alt colors 5"];
                 current_index: root.selected_colorset_idx;
                 selected(v) => { root.colorset_selected(self.current_index); } }
-            WButton { x: 5px; y: 177px; width: 64px; height: 25px; text: "Recolor";
+            WButton { x: 5px; y: 179px; width: 64px; height: 25px; text: "Recolor";
                 clicked => { root.recolor_clicked(); } }
-            WButton { x: 72px; y: 179px; width: 22px; height: 22px; text: "⚙";
+            WButton { x: 72px; y: 181px; width: 22px; height: 22px; text: "⚙";
                 clicked => { root.show_recolor = !root.show_recolor; } }
-            WButton { x: 5px; y: 204px; width: 92px; height: 25px; text: "Export font";
+            WButton { x: 5px; y: 206px; width: 92px; height: 25px; text: "Export font";
                 clicked => { root.export_font_clicked(); } }
         }
 
