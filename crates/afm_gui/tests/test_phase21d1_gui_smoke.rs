@@ -195,34 +195,21 @@ fn test_21d1_bank_switch_and_glyph_edit_refresh_selector() {
 }
 
 // =========================================================================
-// 5. Open reaches the picker and loads a project end-to-end
+// 5. Open uses the native dialog and loads a project end-to-end
 // =========================================================================
 
 #[test]
-fn test_21d1_open_reaches_picker_and_loads_project() {
-    let dialogs = Rc::new(TestFileDialogs::new(vec![]));
+fn test_21d1_open_uses_native_dialog_and_loads_project() {
+    let dialogs = Rc::new(TestFileDialogs::new(vec![Some(fixture_path(
+        "projects/default.atrview",
+    ))]));
     let state = Rc::new(RefCell::new(GuiState::new()));
     let clipboard = Rc::new(RefCell::new(TestClipboard::new()));
     let ctrl =
         GuiController::new_with_io(state.clone(), slint::Weak::default(), dialogs, clipboard);
 
-    // The Open command opens the in-window picker (no native portal needed).
+    // The Open command uses the native dialog backend (as "Load 1" does).
     ctrl.open_project();
-    assert!(state.borrow().show_file_picker);
-    assert!(
-        !state.borrow().file_picker_save_mode,
-        "Open is not save mode"
-    );
-    assert!(
-        !state.borrow().file_picker_files.is_empty() || !state.borrow().file_picker_dirs.is_empty(),
-        "picker lists at least one directory or file"
-    );
-
-    // Direct the picker at the fixtures directory and select default.atrview.
-    state.borrow_mut().file_picker_dir = fixture_path("projects").to_string_lossy().to_string();
-    ctrl.file_picker_select("default.atrview".into());
-
-    assert!(!state.borrow().show_file_picker);
     assert_eq!(
         state.borrow().project_path.as_deref(),
         Some(fixture_path("projects/default.atrview").as_path())
@@ -239,59 +226,55 @@ fn test_21d1_open_reaches_picker_and_loads_project() {
 }
 
 // =========================================================================
-// 6. Picker cancel is non-destructive
+// 6. Dialog cancel is non-destructive
 // =========================================================================
 
 #[test]
-fn test_21d1_picker_cancel_does_not_change_state() {
-    let (state, ctrl) = controller_without_io();
+fn test_21d1_open_cancel_does_not_change_state() {
+    let dialogs = Rc::new(TestFileDialogs::new(vec![None]));
+    let state = Rc::new(RefCell::new(GuiState::new()));
+    let clipboard = Rc::new(RefCell::new(TestClipboard::new()));
+    let ctrl =
+        GuiController::new_with_io(state.clone(), slint::Weak::default(), dialogs, clipboard);
     let fonts_before = state.borrow().fonts.as_bytes().to_vec();
 
     ctrl.open_project();
-    assert!(state.borrow().show_file_picker);
-
-    ctrl.file_picker_cancel();
-    assert!(!state.borrow().show_file_picker);
     assert!(state.borrow().project_path.is_none());
     assert!(!state.borrow().is_dirty);
     assert_eq!(state.borrow().fonts.as_bytes().to_vec(), fonts_before);
 }
 
 // =========================================================================
-// 7. Save through the picker writes a file and updates project_path
+// 7. Save through the native dialog writes a file and updates project_path
 // =========================================================================
 
 #[test]
-fn test_21d1_save_via_picker_writes_file() {
-    let dialogs = Rc::new(TestFileDialogs::new(vec![]));
+fn test_21d1_save_via_native_dialog_writes_file() {
+    let temp_dir = std::env::temp_dir();
+    let name = format!("afm_21d1_save_{}.atrview", std::process::id());
+    let saved = temp_dir.join(&name);
+
+    let dialogs = Rc::new(TestFileDialogs::new(vec![Some(saved.clone())]));
     let state = Rc::new(RefCell::new(GuiState::new()));
     let clipboard = Rc::new(RefCell::new(TestClipboard::new()));
     let ctrl =
         GuiController::new_with_io(state.clone(), slint::Weak::default(), dialogs, clipboard);
 
-    let temp_dir = std::env::temp_dir();
-    let name = format!("afm_21d1_save_{}.atrview", std::process::id());
-
-    // No known path -> Save shows the picker in save mode.
+    // No known path -> Save opens the native save dialog and writes the file.
     ctrl.save_project();
-    assert!(state.borrow().show_file_picker);
-    assert!(state.borrow().file_picker_save_mode);
-
-    state.borrow_mut().file_picker_dir = temp_dir.to_string_lossy().to_string();
-    state.borrow_mut().file_picker_filename = name.clone();
-    ctrl.file_picker_select("".into());
-
-    let saved = temp_dir.join(&name);
-    assert!(saved.exists(), "picker save must write the project file");
+    assert!(
+        saved.exists(),
+        "native dialog save must write the project file"
+    );
     assert_eq!(
         state.borrow().project_path.as_deref(),
         Some(saved.as_path())
     );
     assert!(!state.borrow().is_dirty);
 
-    // Known path -> Save writes directly without reopening the picker.
+    // Known path -> Save writes directly without reopening the dialog.
     ctrl.save_project();
-    assert!(!state.borrow().show_file_picker);
+    assert!(saved.exists());
 
     let _ = std::fs::remove_file(&saved);
 }

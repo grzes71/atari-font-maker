@@ -149,6 +149,7 @@ dependencies = [
  "afm_core",
  "arboard",
  "hex",
+ "log",
  "rfd",
  "slint",
  "slint-build",
