@@ -158,6 +158,14 @@ impl GuiController {
                 state.active_page_name()
             )));
             ui.set_view_page_name(slint::SharedString::from(state.active_page_name()));
+            ui.set_page_count(state.project.pages.len().max(1) as i32);
+            let page_names: Vec<slint::SharedString> = state
+                .project
+                .pages
+                .iter()
+                .map(|p| slint::SharedString::from(p.name.as_str()))
+                .collect();
+            ui.set_page_names(ModelRc::new(VecModel::from(page_names)));
 
             // Update Palette & ColorSets properties
             ui.set_palette_reg_colors(ModelRc::new(VecModel::from(state.register_colors_rgb())));

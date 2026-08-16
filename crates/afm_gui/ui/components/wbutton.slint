@@ -1,0 +1,30 @@
+// WinForms-like flat button: light gray face, 1px border, pressed (checked)
+// highlight. Used to reproduce the original Atari FontMaker button look at
+// the exact sizes specified by the C# Designer file.
+
+export component WButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> checked: false;
+    callback clicked();
+
+    background: root.enabled ? (root.checked ? #cce8ff : #f0f0f0) : #f0f0f0;
+    border-width: 1px;
+    border-color: #adadad;
+
+    Text {
+        text: root.text;
+        color: root.enabled ? #000000 : #888888;
+        font-size: 10px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: 100%;
+        height: 100%;
+        overflow: elide;
+    }
+
+    TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}

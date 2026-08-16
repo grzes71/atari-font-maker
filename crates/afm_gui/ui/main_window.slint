@@ -1,4 +1,5 @@
-import { Button, CheckBox } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, Slider } from "std-widgets.slint";
+import { WButton } from "components/wbutton.slint";
 import { MenuBar } from "components/menu_bar.slint";
 import { Toolbar } from "components/toolbar.slint";
 import { CharEditorPanel } from "components/char_editor_panel.slint";
@@ -21,11 +22,27 @@ import { FilePickerDialog } from "components/file_picker_dialog.slint";
 export component MainWindow inherits Window {
     in-out property <string> window_title: "Atari FontMaker [Rust + Slint]";
     title: root.window_title;
-    min_width: 1200px;
-    min_height: 820px;
-    preferred_width: 1480px;
-    preferred_height: 900px;
-    background: #1e1e1e;
+    min_width: root.win_w;
+    max_width: root.win_w;
+    min_height: 600px;
+    max_height: 600px;
+    background: #f0f0f0;
+
+    // Local layout state (faithful to C# `comboBoxBytes` and GFX toggling)
+    in-out property <int> view_bytes_mode: 1; // 0=32, 1=40, 2=48
+    in-out property <int> last_color_mode: 1; // 1=Mode4, 2=Mode5, 3=Mode10
+    in-out property <bool> show_recolor: false;
+    in property <int> page_count: 1;
+    in property <[string]> page_names;
+
+    property <length> win_w: root.view_bytes_mode == 0 ? 1082px : (root.view_bytes_mode == 1 ? 1210px : 1341px);
+    property <length> hscroll_w: root.view_bytes_mode == 0 ? 545px : (root.view_bytes_mode == 1 ? 673px : 801px);
+    property <length> vscroll_x: root.view_bytes_mode == 0 ? 1049px : (root.view_bytes_mode == 1 ? 1177px : 1306px);
+
+    function palette_label(i: int, mode10: bool) -> string {
+        mode10 ? (i == 0 ? "LUM" : (i == 1 ? "0" : (i == 2 ? "1" : (i == 3 ? "2" : (i == 4 ? "3" : (i == 5 ? "4" : (i == 6 ? "5" : (i == 7 ? "6" : (i == 8 ? "7" : "8"))))))))) :
+                 (i == 0 ? "LUM" : (i == 1 ? "BAK" : (i == 2 ? "PF0" : (i == 3 ? "PF1" : (i == 4 ? "PF2" : "PF3")))))
+    }
 
     // State properties exposed from Rust Controller
     in property <string> status_text: "Ready";
@@ -171,6 +188,9 @@ export component MainWindow inherits Window {
     callback save_tileset_dialog();
     callback export_font_clicked();
     callback export_view_clicked();
+    callback quit_clicked();
+    callback shift_font_left_insert();
+    callback delete_char_shift_right();
 
     // Character Editor Canvas callbacks
     callback char_pixel_pressed(int, int, int);
@@ -354,12 +374,15 @@ export component MainWindow inherits Window {
     forward-focus: key-handler;
 
     key-handler := FocusScope {
+        width: 100%;
+        height: 100%;
         key-pressed(event) => {
             root.key_down(event.text, event.modifiers.control, event.modifiers.shift);
             accept
         }
 
         VerticalLayout {
+            visible: false;
             spacing: 0;
 
             // 1. Menu Bar
@@ -619,6 +642,533 @@ export component MainWindow inherits Window {
                 message: root.status_text;
                 font_info: root.active_font_name;
             }
+        }
+
+        // =====================================================================
+        // Faithful absolute-positioned layout (mirrors FontMakerForm.Designer.cs)
+        // =====================================================================
+
+        // ── Section A: File / Project (p_hh) ──
+        Rectangle {
+            x: 1px; y: 0px; width: 105px; height: 177px;
+            background: #f0f0f0;
+            border-width: 1px;
+            border-color: #7f7f7f;
+
+            WButton { x: 7px; y: 8px; width: 90px; height: 20px; text: "New";
+                clicked => { root.new_project_clicked(); } }
+            WButton { x: 3px; y: 35px; width: 50px; height: 20px;
+                text: "Load " + (root.selected_bank_pair == 0 ? "1" : "3");
+                clicked => { root.open_font(root.selected_bank_pair == 0 ? 1 : 3); } }
+            WButton { x: 52px; y: 35px; width: 50px; height: 20px;
+                text: "Load " + (root.selected_bank_pair == 0 ? "2" : "4");
+                clicked => { root.open_font(root.selected_bank_pair == 0 ? 2 : 4); } }
+            WButton { x: 3px; y: 61px; width: 50px; height: 20px;
+                text: "Save " + (root.selected_bank_pair == 0 ? "1" : "3");
+                clicked => { root.save_font(root.selected_bank_pair == 0 ? 1 : 3); } }
+            WButton { x: 52px; y: 61px; width: 50px; height: 20px;
+                text: "Save " + (root.selected_bank_pair == 0 ? "2" : "4");
+                clicked => { root.save_font(root.selected_bank_pair == 0 ? 2 : 4); } }
+            WButton { x: 3px; y: 80px; width: 50px; height: 20px; text: "as...";
+                clicked => { root.save_font(root.selected_bank_pair == 0 ? 1 : 3); } }
+            WButton { x: 52px; y: 80px; width: 50px; height: 20px; text: "as...";
+                clicked => { root.save_font(root.selected_bank_pair == 0 ? 2 : 4); } }
+            WButton { x: 3px; y: 106px; width: 50px; height: 20px;
+                text: "Clear " + (root.selected_bank_pair == 0 ? "1" : "3"); }
+            WButton { x: 52px; y: 106px; width: 50px; height: 20px;
+                text: "Clear " + (root.selected_bank_pair == 0 ? "2" : "4"); }
+            WButton { x: 8px; y: 130px; width: 89px; height: 20px; text: "About"; }
+            WButton { x: 8px; y: 154px; width: 89px; height: 20px; text: "Quit";
+                clicked => { root.quit_clicked(); } }
+        }
+
+        // ── Section B: Character Editor (p_xx) ──
+        Rectangle {
+            x: 113px; y: 0px; width: 289px; height: 234px;
+            background: #f0f0f0;
+            border-width: 1px;
+            border-color: #7f7f7f;
+
+            // Bevel3 frame with the 160x160 pixel editor
+            Rectangle {
+                x: 63px; y: 5px; width: 162px; height: 162px;
+                background: #a9a9a9;
+                border-width: 1px;
+                border-color: #7f7f7f;
+
+                // Mono 8x8 grid (20px cells)
+                if root.active_color_mode == 0 : Rectangle {
+                    for y in 8 : Rectangle {
+                        y: y * 20px; width: 160px; height: 20px;
+                        for x in 8 : Rectangle {
+                            x: x * 20px; width: 20px; height: 20px;
+                            background: root.char_pixel_colors[y * 8 + x];
+                            Rectangle { width: 1px; height: 1px; background: #ffffff; }
+                        }
+                    }
+                }
+
+                // Mode 4 / 5 (4 columns; 40px or 20px wide)
+                if root.active_color_mode == 1 || root.active_color_mode == 2 : Rectangle {
+                    for y in 8 : Rectangle {
+                        y: y * 20px; width: 160px; height: 20px;
+                        for x in 4 : Rectangle {
+                            x: x * (root.active_color_mode == 2 ? 20px : 40px);
+                            width: root.active_color_mode == 2 ? 20px : 40px;
+                            height: 20px;
+                            background: root.char_pixel_colors[y * 8 + x * 2];
+                        }
+                    }
+                }
+
+                // Mode 10 (2 columns, 80px wide)
+                if root.active_color_mode == 3 : Rectangle {
+                    for y in 8 : Rectangle {
+                        y: y * 20px; width: 160px; height: 20px;
+                        for x in 2 : Rectangle {
+                            x: x * 80px; width: 80px; height: 20px;
+                            background: root.char_pixel_colors[y * 8 + x * 4];
+                        }
+                    }
+                }
+
+                TouchArea {
+                    width: 160px; height: 160px;
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down {
+                            let cell_x = Math.min(7, Math.max(0, Math.floor(self.mouse-x / 20px)));
+                            let cell_y = Math.min(7, Math.max(0, Math.floor(self.mouse-y / 20px)));
+                            let btn = event.button == PointerEventButton.right ? 1 : 0;
+                            root.char_pixel_pressed(cell_x, cell_y, btn);
+                        } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                            root.char_pixel_released();
+                        }
+                    }
+                    moved => {
+                        if self.pressed {
+                            let cell_x = Math.min(7, Math.max(0, Math.floor(self.mouse-x / 20px)));
+                            let cell_y = Math.min(7, Math.max(0, Math.floor(self.mouse-y / 20px)));
+                            root.char_pixel_dragged(cell_x, cell_y);
+                        }
+                    }
+                }
+            }
+
+            // Clipboard preview overlay (MegaCopy) + copy-area label
+            if root.megacopy_active : Rectangle {
+                x: 63px; y: 20px; width: 160px; height: 145px;
+                background: #a9a9a9;
+            }
+            Text { x: 63px; y: 5px; text: "Copy Area:"; font-size: 10px; color: #000000;
+                visible: root.megacopy_active; }
+
+            // Left column of buttons
+            Rectangle { x: 8px; y: 6px; width: 49px; height: 17px;
+                background: root.palette_reg_colors[3];
+                visible: root.active_color_mode != 3;
+                Text { text: "PF1"; color: #ffffff; font-size: 9px; width: 100%; height: 100%;
+                    horizontal-alignment: center; vertical-alignment: center; }
+                TouchArea { clicked => { root.select_draw_color(2); } } }
+            WButton { x: 8px; y: 26px; width: 49px; height: 20px; text: "ROL";
+                clicked => { root.rotate_char_left(); } }
+            WButton { x: 8px; y: 47px; width: 49px; height: 20px; text: "H MIR";
+                clicked => { root.mirror_char_horizontal(); } }
+            WButton { x: 8px; y: 68px; width: 49px; height: 20px; text: "SHL";
+                clicked => { root.shift_char_left(); } }
+            WButton { x: 8px; y: 89px; width: 49px; height: 20px; text: "SHD";
+                clicked => { root.shift_char_down(); } }
+            WButton { x: 8px; y: 110px; width: 49px; height: 20px; text: "RES D"; }
+            WButton { x: 8px; y: 131px; width: 49px; height: 20px; text: "RES S"; }
+            WButton { x: 8px; y: 152px; width: 49px; height: 20px; text: "CPY";
+                clicked => { root.copy_to_clipboard(); } }
+
+            // Right column of buttons
+            Rectangle { x: 232px; y: 6px; width: 49px; height: 17px;
+                background: root.palette_reg_colors[4];
+                visible: root.active_color_mode != 3;
+                Text { text: "PF2"; color: #ffffff; font-size: 9px; width: 100%; height: 100%;
+                    horizontal-alignment: center; vertical-alignment: center; }
+                TouchArea { clicked => { root.select_draw_color(3); } } }
+            WButton { x: 232px; y: 26px; width: 49px; height: 20px; text: "ROR";
+                clicked => { root.rotate_char_right(); } }
+            WButton { x: 232px; y: 47px; width: 49px; height: 20px; text: "V MIR";
+                clicked => { root.mirror_char_vertical(); } }
+            WButton { x: 232px; y: 68px; width: 49px; height: 20px; text: "SHR";
+                clicked => { root.shift_char_right(); } }
+            WButton { x: 232px; y: 89px; width: 49px; height: 20px; text: "SHU";
+                clicked => { root.shift_char_up(); } }
+            WButton { x: 232px; y: 110px; width: 49px; height: 20px; text: "INV";
+                clicked => { root.invert_char(); } }
+            WButton { x: 232px; y: 131px; width: 49px; height: 20px; text: "CLR";
+                clicked => { root.clear_char(); } }
+            WButton { x: 232px; y: 152px; width: 49px; height: 20px; text: "PST";
+                clicked => { root.paste_from_clipboard(); } }
+
+            // Bottom row
+            Text { x: 73px; y: 173px; text: "Color:"; font-size: 10px; color: #000000; }
+            Rectangle { x: 115px; y: 172px; width: 49px; height: 17px;
+                background: root.palette_reg_colors[root.selected_draw_color + 1];
+                visible: root.active_color_mode != 3;
+                Text { text: root.palette_label(root.selected_draw_color + 1, false); color: #ffffff;
+                    font-size: 9px; width: 100%; height: 100%;
+                    horizontal-alignment: center; vertical-alignment: center; } }
+            ComboBox { x: 114px; y: 170px; width: 77px; height: 23px;
+                visible: root.active_color_mode == 3;
+                model: ["Color 0","Color 1","Color 2","Color 3","Color 4","Color 5","Color 6","Color 7","Color 8"];
+                current_index: root.selected_draw_color;
+                selected(v) => { root.select_draw_color(self.current_index); } }
+
+            Text { x: 3px; y: 188px; text: "Undo/Redo"; font-size: 10px; color: #000000; }
+            Text { x: 63px; y: 197px; width: 48px; height: 29px; text: "Write Mode";
+                font-size: 10px; color: #000000; horizontal-alignment: right; vertical-alignment: center; }
+            Text { x: 212px; y: 188px; width: 69px; height: 29px;
+                text: "Font " + (root.selected_char_index < 256 ? (root.selected_bank_pair == 0 ? 1 : 3) : (root.selected_bank_pair == 0 ? 2 : 4)) + "\n" + root.char_hex_label + " " + root.char_dec_label;
+                font-size: 10px; color: #000000; horizontal-alignment: right; vertical-alignment: center; }
+            ComboBox { x: 114px; y: 200px; width: 77px; height: 21px;
+                model: ["Rewrite","Insert"];
+                current_index: root.char_write_mode;
+                selected(v) => { root.write_mode_changed(self.current_index); } }
+            WButton { x: 12px; y: 204px; width: 22px; height: 22px; text: "↶";
+                enabled: root.can_undo; clicked => { root.undo_clicked(); } }
+            WButton { x: 35px; y: 204px; width: 22px; height: 22px; text: "↷";
+                enabled: root.can_redo; clicked => { root.redo_clicked(); } }
+        }
+
+        // ── Section C: GFX / Colors (p_zz) ──
+        Rectangle {
+            x: 409px; y: 0px; width: 105px; height: 234px;
+            background: #f0f0f0;
+            border-width: 1px;
+            border-color: #7f7f7f;
+
+            WButton { x: 1px; y: 6px; width: 99px; height: 25px; text: "Change GFX";
+                clicked => {
+                    if root.active_color_mode == 0 {
+                        root.change_color_mode(root.last_color_mode == 0 ? 1 : root.last_color_mode);
+                    } else {
+                        root.last_color_mode = root.active_color_mode;
+                        root.change_color_mode(0);
+                    }
+                } }
+            ComboBox { x: 2px; y: 33px; width: 98px; height: 21px;
+                model: ["Mode 4 (5 cols)","Mode 5 (5 cols)","Mode 10 (9 cols)"];
+                current_index: root.active_color_mode == 0 ? 0 : root.active_color_mode - 1;
+                selected(v) => {
+                    root.last_color_mode = self.current_index + 1;
+                    root.change_color_mode(self.current_index + 1);
+                } }
+
+            // Bevel4 frame + 90x90 palette
+            Rectangle {
+                x: 5px; y: 58px; width: 92px; height: 92px;
+                background: #f0f0f0;
+                border-width: 1px;
+                border-color: #7f7f7f;
+                for a in 5 : Rectangle {
+                    y: a * 18px; width: 90px; height: 22px;
+                    for b in 2 : Rectangle {
+                        x: b * 45px; width: 45px; height: 22px;
+                        background: root.palette_reg_colors[a * 2 + b];
+                        visible: root.active_color_mode == 3 || a < 3;
+                        Text { text: root.palette_label(a * 2 + b, root.active_color_mode == 3);
+                            color: #ffffff; font-size: 9px;
+                            width: 100%; height: 100%;
+                            horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { clicked => { root.palette_reg_clicked(a * 2 + b); } }
+                    }
+                }
+            }
+
+            ComboBox { x: 5px; y: 154px; width: 92px; height: 21px;
+                model: ["Project colors","Alt colors 1","Alt colors 2","Alt colors 3","Alt colors 4","Alt colors 5"];
+                current_index: root.selected_colorset_idx;
+                selected(v) => { root.colorset_selected(self.current_index); } }
+            WButton { x: 5px; y: 177px; width: 64px; height: 25px; text: "Recolor";
+                clicked => { root.recolor_clicked(); } }
+            WButton { x: 72px; y: 179px; width: 22px; height: 22px; text: "⚙";
+                clicked => { root.show_recolor = !root.show_recolor; } }
+            WButton { x: 5px; y: 204px; width: 92px; height: 25px; text: "Export font";
+                clicked => { root.export_font_clicked(); } }
+        }
+
+        // ── Section E: Status / Font Operations (p_status) ──
+        Rectangle {
+            x: -1px; y: 238px; width: 515px; height: 54px;
+            background: #f0f0f0;
+
+            CheckBox { x: 8px; y: 6px; text: "Show Duplicates"; font-size: 10px; }
+            WButton { x: 159px; y: 2px; width: 216px; height: 21px; text: "Mega Copy";
+                checked: root.megacopy_active;
+                clicked => { root.toggle_megacopy(); } }
+            Text { x: 404px; y: 6px; text: "Font Bank:"; font-size: 10px; color: #000000; }
+            WButton { x: 469px; y: 1px; width: 46px; height: 22px;
+                text: root.selected_bank_pair == 0 ? "12" : "34";
+                checked: root.selected_bank_pair == 1;
+                clicked => { root.switch_bank_pair(root.selected_bank_pair == 0 ? 1 : 0); } }
+
+            // Font shift row (24x24)
+            WButton { x: 4px; y: 27px; width: 24px; height: 24px; text: "SL";
+                clicked => { root.shift_font_left_insert(); } }
+            WButton { x: 28px; y: 27px; width: 24px; height: 24px; text: "RL";
+                clicked => { root.shift_bank_left(); } }
+            WButton { x: 52px; y: 27px; width: 24px; height: 24px; text: "DR";
+                clicked => { root.delete_char_shift_right(); } }
+            WButton { x: 76px; y: 27px; width: 24px; height: 24px; text: "DL";
+                clicked => { root.delete_char_and_shift(); } }
+            WButton { x: 100px; y: 27px; width: 24px; height: 24px; text: "RR";
+                clicked => { root.shift_bank_right(); } }
+            WButton { x: 124px; y: 27px; width: 24px; height: 24px; text: "SR";
+                clicked => { root.insert_space_and_shift(); } }
+
+            // Copy-area row (24x24)
+            WButton { x: 159px; y: 27px; width: 24px; height: 24px; text: "CL";
+                clicked => { root.transform_clipboard(0); } }
+            WButton { x: 183px; y: 27px; width: 24px; height: 24px; text: "CR";
+                clicked => { root.transform_clipboard(1); } }
+            WButton { x: 207px; y: 27px; width: 24px; height: 24px; text: "CU";
+                clicked => { root.transform_clipboard(2); } }
+            WButton { x: 231px; y: 27px; width: 24px; height: 24px; text: "CD";
+                clicked => { root.transform_clipboard(3); } }
+            WButton { x: 255px; y: 27px; width: 24px; height: 24px; text: "MH";
+                clicked => { root.transform_clipboard(4); } }
+            WButton { x: 279px; y: 27px; width: 24px; height: 24px; text: "MV";
+                clicked => { root.transform_clipboard(5); } }
+            WButton { x: 303px; y: 27px; width: 24px; height: 24px; text: "IV";
+                clicked => { root.transform_clipboard(6); } }
+            WButton { x: 327px; y: 27px; width: 24px; height: 24px; text: "RL";
+                clicked => { root.transform_clipboard(7); } }
+            WButton { x: 351px; y: 27px; width: 24px; height: 24px; text: "RR";
+                clicked => { root.transform_clipboard(8); } }
+
+            WButton { x: 378px; y: 27px; width: 104px; height: 24px;
+                text: "Paste to Font " + root.megacopy_paste_into_font_nr;
+                clicked => { root.paste_in_place(); } }
+            ComboBox { x: 483px; y: 29px; width: 30px; height: 21px;
+                model: ["1","2","3","4"];
+                current_index: root.megacopy_paste_into_font_nr - 1;
+                selected(v) => { root.set_paste_into_font_nr(self.current_index + 1); } }
+        }
+
+        // ── Tile Set Editor button (form-level) ──
+        WButton { x: 3px; y: 181px; width: 104px; height: 51px; text: "Tile Set Editor";
+            clicked => { root.open_tileset(); } }
+
+        // ── Section F: Font Selector (plain 512x256 raster atlas) ──
+        Rectangle {
+            x: 2px; y: 298px; width: 512px; height: 256px;
+            background: #000000;
+
+            Image { width: 512px; height: 256px; source: root.font_selector_image; }
+
+            // Hollow red 20x20 selection cursor, offset 2px outside the cell
+            Rectangle {
+                x: Math.mod(root.selected_char_index, 32) * 16px - 2px;
+                y: Math.floor(root.selected_char_index / 32) * 16px - 2px;
+                width: 20px; height: 20px;
+                background: #ff000000;
+                border-width: 2px;
+                border-color: #ff0000;
+            }
+
+            // Duplicate indicator (purple, hollow) — backend not yet wired
+            Rectangle {
+                visible: false;
+                x: 0px; y: 9px; width: 20px; height: 20px;
+                background: #80008000;
+                border-width: 2px;
+                border-color: #800080;
+            }
+
+            TouchArea {
+                width: 512px; height: 256px;
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down {
+                        let rx = Math.min(31, Math.max(0, Math.floor(self.mouse-x / 16px)));
+                        let ry = Math.min(15, Math.max(0, Math.floor(self.mouse-y / 16px)));
+                        root.select_character(rx + ry * 32);
+                    }
+                }
+            }
+        }
+
+        // ── Section D: Right side (Atari View + controls) ──
+
+        // Line-font strip (15px)
+        Rectangle {
+            x: 520px; y: 0px; width: 15px; height: 416px;
+            background: #ffffff;
+            for i in 26 : Rectangle {
+                y: i * 16px; width: 15px; height: 16px;
+                background: #ffffff;
+                Text { text: root.view_line_fonts[i]; color: #000000; font-size: 9px;
+                    width: 100%; height: 100%;
+                    horizontal-alignment: center; vertical-alignment: center; }
+                TouchArea {
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down {
+                            let btn = event.button == PointerEventButton.right ? 1 : 0;
+                            root.view_line_font_clicked(i, btn, event.modifiers.control, event.modifiers.shift);
+                        }
+                    }
+                }
+            }
+            Rectangle { y: 384px; width: 15px; height: 1px; background: #000000; }
+        }
+
+        // Atari View surface (768x416; 48x26 @ 16px)
+        Rectangle {
+            x: 536px; y: 0px; width: 768px; height: 416px;
+            background: root.palette_reg_colors[1];
+
+            Image { width: 640px; height: 416px; source: root.view_editor_image; }
+
+            TouchArea {
+                width: 768px; height: 416px;
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down {
+                        let rx = Math.min(39, Math.max(0, Math.floor(self.mouse-x / 16px)));
+                        let ry = Math.min(25, Math.max(0, Math.floor(self.mouse-y / 16px)));
+                        let btn = event.button == PointerEventButton.right ? 1 : 0;
+                        root.view_cell_clicked(rx, ry, btn);
+                    } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
+                        root.view_cell_released();
+                    }
+                }
+                moved => {
+                    if self.pressed {
+                        let rx = Math.min(39, Math.max(0, Math.floor(self.mouse-x / 16px)));
+                        let ry = Math.min(25, Math.max(0, Math.floor(self.mouse-y / 16px)));
+                        root.view_cell_dragged(rx, ry);
+                    }
+                }
+            }
+        }
+
+        // Scrollbars (visual; view offset not yet exposed by the backend)
+        Rectangle {
+            x: 520px; y: 417px; width: root.hscroll_w; height: 17px;
+            background: #f0f0f0;
+            border-width: 1px;
+            border-color: #7f7f7f;
+            Rectangle { x: 1px; y: 1px; width: 40px; height: 15px; background: #d0d0d0; }
+        }
+        Rectangle {
+            x: root.vscroll_x; y: 0px; width: 17px; height: 416px;
+            background: #f0f0f0;
+            border-width: 1px;
+            border-color: #7f7f7f;
+            Rectangle { x: 1px; y: 1px; width: 15px; height: 40px; background: #d0d0d0; }
+        }
+
+        // Info labels under the view (y ≈ 436)
+        Text { x: 520px; y: 436px; text: "Char: Font " + (root.selected_char_index < 256 ? (root.selected_bank_pair == 0 ? 1 : 3) : (root.selected_bank_pair == 0 ? 2 : 4)) + " " + root.char_hex_label + " " + root.char_dec_label;
+            font-size: 10px; color: #000000; }
+        Text { x: 711px; y: 436px; text: "TL: [0,0]-[39,25]"; font-size: 10px; color: #000000; }
+        Text { x: 863px; y: 436px; text: "Area:"; font-size: 10px; color: #000000; }
+
+        // View action buttons (y = 454)
+        WButton { x: 520px; y: 454px; width: 86px; height: 23px; text: "Export View";
+            clicked => { root.open_export_view(); } }
+        WButton { x: 613px; y: 454px; width: 86px; height: 23px; text: "Import View";
+            clicked => { root.open_import_view(); } }
+        WButton { x: 706px; y: 454px; width: 86px; height: 23px; text: "Clear View";
+            clicked => { root.clear_entire_view(); } }
+        WButton { x: 799px; y: 454px; width: 86px; height: 23px; text: "Load View";
+            clicked => { root.open_project_clicked(); } }
+        WButton { x: 892px; y: 454px; width: 86px; height: 23px; text: "Save View";
+            clicked => { root.save_project_clicked(); } }
+        WButton { x: 990px; y: 452px; width: 28px; height: 28px; text: "⚙";
+            clicked => { root.open_config(); } }
+
+        // Paging panel (panel1)
+        Rectangle {
+            x: 613px; y: 483px; width: 191px; height: 88px;
+            background: #f0f0f0;
+            border-width: 1px;
+            border-color: #7f7f7f;
+
+            Text { x: 7px; y: 9px; text: "Pages:"; font-size: 10px; color: #000000; }
+            Text { x: 53px; y: 9px; text: (root.active_page_index + 1) + " of " + root.page_count;
+                font-size: 10px; color: #000000; }
+            WButton { x: 131px; y: 3px; width: 53px; height: 21px; text: "Edit"; }
+            ComboBox { x: 7px; y: 33px; width: 121px; height: 21px;
+                model: root.page_names;
+                current_index: root.active_page_index;
+                selected(v) => { root.switch_page(self.current_index); } }
+            WButton { x: 131px; y: 33px; width: 25px; height: 21px; text: "+";
+                clicked => { root.view_add_page(); } }
+            WButton { x: 159px; y: 33px; width: 25px; height: 21px; text: "-";
+                clicked => { root.view_delete_page(); } }
+            Text { x: 8px; y: 62px; text: "Size:"; font-size: 10px; color: #000000; }
+            Text { x: 41px; y: 62px; text: "40 x 26"; font-size: 10px; color: #000000; }
+            WButton { x: 156px; y: 57px; width: 28px; height: 28px; text: "⚙";
+                clicked => { root.open_config(); } }
+        }
+
+        // Lower view controls
+        WButton { x: 520px; y: 481px; width: 86px; height: 23px; text: "Enter text";
+            enabled: root.megacopy_active;
+            clicked => { root.open_enter_text(); } }
+        Text { x: 810px; y: 483px; text: "Undo/Redo"; font-size: 10px; color: #000000; }
+        CheckBox { x: 898px; y: 483px; text: "Skip char #" + root.megacopy_skip_char_val + " on paste";
+            font-size: 10px;
+            checked: root.megacopy_skip_char;
+            toggled => { root.toggle_skip_char(); } }
+        WButton { x: 820px; y: 499px; width: 22px; height: 22px; text: "↶";
+            enabled: root.can_view_undo; clicked => { root.view_undo_clicked(); } }
+        WButton { x: 843px; y: 499px; width: 22px; height: 22px; text: "↷";
+            enabled: root.can_view_redo; clicked => { root.view_redo_clicked(); } }
+        Slider { x: 892px; y: 500px; width: 284px; height: 34px;
+            minimum: 0; maximum: 255;
+            value: root.megacopy_skip_char_val;
+            changed(v) => { root.set_skip_char_value(Math.round(v)); } }
+        WButton { x: 520px; y: 508px; width: 86px; height: 23px; text: "View Actions";
+            clicked => { root.open_view_actions(); } }
+        CheckBox { x: 812px; y: 527px; text: "Stay in Paste Mode"; font-size: 10px;
+            checked: root.megacopy_stay_in_paste_mode;
+            toggled => { root.toggle_stay_in_paste_mode(); } }
+        WButton { x: 520px; y: 535px; width: 85px; height: 23px; text: "Analyse";
+            clicked => { root.open_analysis(); } }
+        ComboBox { x: 810px; y: 546px; width: 67px; height: 21px;
+            model: ["32 Bytes","40 Bytes","48 Bytes"];
+            current_index: root.view_bytes_mode;
+            selected(v) => { root.view_bytes_mode = self.current_index; } }
+        Rectangle { x: 1139px; y: 547px; width: 188px; height: 25px;
+            visible: root.megacopy_active;
+            background: #2b5b8e;
+            Text { text: "In MegaCopy Mode"; font-size: 14px; font-weight: 700; color: #ffffff;
+                width: 100%; height: 100%;
+                horizontal-alignment: center; vertical-alignment: center; } }
+
+        // Recolor setup popup (toggled by the p_zz gear)
+        Rectangle {
+            x: 544px; y: 8px; width: 153px; height: 97px;
+            visible: root.show_recolor;
+            background: #f0f0f0;
+            border-width: 1px;
+            border-color: #7f7f7f;
+            if root.active_color_mode != 3 : ComboBox {
+                x: 8px; y: 8px; width: 65px; height: 21px;
+                model: ["BAK (00)","PF0 (01)","PF1 (10)","PF2 (11)"];
+                current_index: root.char_recolor_source;
+                selected(v) => { root.recolor_source_changed(self.current_index); } }
+            if root.active_color_mode != 3 : ComboBox {
+                x: 80px; y: 8px; width: 65px; height: 21px;
+                model: ["BAK (00)","PF0 (01)","PF1 (10)","PF2 (11)"];
+                current_index: root.char_recolor_target;
+                selected(v) => { root.recolor_target_changed(self.current_index); } }
+            if root.active_color_mode == 3 : ComboBox {
+                x: 8px; y: 8px; width: 65px; height: 21px;
+                model: ["Color 0","Color 1","Color 2","Color 3","Color 4","Color 5","Color 6","Color 7","Color 8"];
+                current_index: root.char_recolor_source;
+                selected(v) => { root.recolor_source_changed(self.current_index); } }
+            if root.active_color_mode == 3 : ComboBox {
+                x: 80px; y: 8px; width: 65px; height: 21px;
+                model: ["Color 0","Color 1","Color 2","Color 3","Color 4","Color 5","Color 6","Color 7","Color 8"];
+                current_index: root.char_recolor_target;
+                selected(v) => { root.recolor_target_changed(self.current_index); } }
+            WButton { x: 8px; y: 34px; width: 137px; height: 25px; text: "Recolor";
+                clicked => { root.recolor_clicked(); } }
         }
 
         // Modals

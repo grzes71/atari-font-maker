@@ -124,6 +124,14 @@ impl AfmApp {
             let c = controller.clone();
             ui.on_insert_space_and_shift(move || c.insert_space_and_shift());
         }
+        {
+            let c = controller.clone();
+            ui.on_shift_font_left_insert(move || c.shift_font_left(true));
+        }
+        {
+            let c = controller.clone();
+            ui.on_delete_char_shift_right(move || c.delete_and_shift_right());
+        }
 
         // Wire Undo/Redo & Project Commands
         {
@@ -149,6 +157,10 @@ impl AfmApp {
         {
             let c = controller.clone();
             ui.on_save_as_clicked(move || c.save_project_as());
+        }
+        {
+            let c = controller.clone();
+            ui.on_quit_clicked(move || c.request_quit_confirmation());
         }
         {
             let c = controller.clone();
