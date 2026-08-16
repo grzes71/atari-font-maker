@@ -593,6 +593,31 @@ fn test_phase18_view_exporter_gui_generation() {
     assert!(mads.contains("dta "));
 }
 
+/// "Clear 1/2/3/4" must blank the selected 1024-byte bank only (C# `ClearFont`).
+#[test]
+fn test_clear_font_bank_zeroes_bank_and_marks_dirty() {
+    let mut state = GuiState::new();
+    assert!(
+        state.fonts.as_bytes()[1 * 1024..2 * 1024]
+            .iter()
+            .any(|&b| b != 0)
+    );
+
+    state.clear_font_bank(1);
+
+    assert!(
+        state.fonts.as_bytes()[1 * 1024..2 * 1024]
+            .iter()
+            .all(|&b| b == 0)
+    );
+    assert!(
+        state.fonts.as_bytes()[0 * 1024..1 * 1024]
+            .iter()
+            .any(|&b| b != 0)
+    );
+    assert!(state.is_dirty);
+}
+
 /// Mode 5 must draw every Atari View glyph twice as tall as Mode 4
 /// (C# `CellHeight = 32` vs `16`, with a 16x16 source glyph stretched 2x).
 #[test]

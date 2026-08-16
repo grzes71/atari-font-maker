@@ -59,6 +59,8 @@ pub enum PendingAction {
     LoadFonts,
     /// C# `ActionExitApplication` — "Are you sure you want to quit?".
     Quit,
+    /// C# `ClearFont1_Click` / `ClearFont2_Click` — "clear font N?".
+    ClearFont { font_nr: usize },
 }
 
 /// Application state combining Domain State, GUI Interaction State, and Derived properties.
@@ -595,6 +597,15 @@ impl GuiState {
         self.is_char_edited = true;
         self.is_dirty = true;
         self.render_one_char_atlas(self.selected_char_index, on_bank2);
+    }
+
+    /// Clear an entire 1024-byte font bank (0..=3), matching C# `ClearFont`.
+    pub fn clear_font_bank(&mut self, font_nr: usize) {
+        self.fonts.clear_font(font_nr.min(3));
+        self.is_char_edited = false;
+        self.is_dirty = true;
+        self.render_full_atlas();
+        self.status_message = format!("Cleared font {}", font_nr.min(3) + 1);
     }
 
     // Bank Shifting and Deletions

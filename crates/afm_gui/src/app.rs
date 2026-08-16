@@ -172,6 +172,10 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
+            ui.on_clear_font(move |offset| c.clear_font(offset as usize));
+        }
+        {
+            let c = controller.clone();
             ui.on_open_palette(move || c.open_palette());
         }
         {

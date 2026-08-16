@@ -1474,6 +1474,27 @@ impl GuiController {
         }
     }
 
+    /// Clear a whole font bank (C# `ClearFont1_Click`/`ClearFont2_Click`).
+    ///
+    /// `font_offset` is 0 for "Clear 1"/"Clear 3" and 1 for "Clear 2"/"Clear 4";
+    /// the active bank pair (1+2 vs 3+4) selects the final bank, matching C#
+    /// `ActionClearFont` which adds `checkBoxFontBank.Checked ? 2 : 0`.
+    pub fn clear_font(&self, font_offset: usize) {
+        let font_nr = font_offset.min(1) + {
+            let state = self.state.borrow();
+            state.selected_bank_pair * 2
+        };
+        {
+            let mut state = self.state.borrow_mut();
+            state.request_confirm(
+                PendingAction::ClearFont { font_nr },
+                "Clear font",
+                &format!("Are you sure you want to clear font {}?", font_nr + 1),
+            );
+        }
+        self.sync_to_ui();
+    }
+
     /// Open a 768-byte `.pal` palette file.
     pub fn open_palette(&self) {
         if let Some(path) = self.dialogs.open_palette() {
@@ -1797,6 +1818,7 @@ impl GuiController {
                 Some(PendingAction::NewTileSet) => state.new_tileset(),
                 Some(PendingAction::RestoreDefaultColors) => state.restore_default_colors(),
                 Some(PendingAction::LoadFonts) => state.load_fonts_from_project(),
+                Some(PendingAction::ClearFont { font_nr }) => state.clear_font_bank(font_nr),
                 Some(PendingAction::Quit) => {
                     // C# `ActionExitApplication`: SaveConfiguration() then Exit().
                     let _ = state.save_config_file(None);
