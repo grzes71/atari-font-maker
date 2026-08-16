@@ -288,6 +288,18 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
+            ui.on_view_scroll_x_changed(move |x| c.view_scroll_x_changed(x));
+        }
+        {
+            let c = controller.clone();
+            ui.on_view_scroll_y_changed(move |y| c.view_scroll_y_changed(y));
+        }
+        {
+            let c = controller.clone();
+            ui.on_view_bytes_mode_changed(move |mode| c.view_bytes_mode_changed(mode));
+        }
+        {
+            let c = controller.clone();
             ui.on_view_prev_page(move || c.view_prev_page());
         }
         {

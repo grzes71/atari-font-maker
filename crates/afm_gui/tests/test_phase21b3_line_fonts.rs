@@ -5,6 +5,7 @@ mod state;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use afm_core::renderer::buffer::ViewRenderSpec;
 use state::GuiState;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
@@ -19,10 +20,21 @@ fn render_view_rgba(s: &mut GuiState) -> Vec<u8> {
     s.render_full_atlas();
     let mut out = vec![0u8; 640 * 416 * 4];
     let is_color = s.active_color_mode != 0;
+    let (vw, vh) = (s.project.width, s.project.height);
+    let (vcols, vrows) = (s.visible_view_columns(), s.visible_view_rows());
     s.atlas_buffer.render_view_image_rgba(
         &s.project.view_bytes,
         &s.project.line_fonts,
-        is_color,
+        ViewRenderSpec {
+            view_width: vw,
+            view_height: vh,
+            is_color,
+            cell_height: 16,
+            offset_x: 0,
+            offset_y: 0,
+            visible_columns: vcols,
+            visible_rows: vrows,
+        },
         &mut out,
     );
     out

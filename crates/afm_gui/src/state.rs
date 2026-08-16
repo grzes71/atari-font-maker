@@ -17,7 +17,7 @@ use afm_core::font::area_transforms::PixelMatrix;
 use afm_core::font::bank::FontBankSet;
 use afm_core::font::glyph::GlyphBytes;
 use afm_core::palette::table::Palette;
-use afm_core::renderer::buffer::FontAtlasBuffer;
+use afm_core::renderer::buffer::{FontAtlasBuffer, ViewRenderSpec};
 use afm_core::renderer::engine::{FontRenderer, RenderColorMode};
 use afm_core::tileset::{
     NUM_TILES_IN_SET, TILE_HEIGHT, TILE_WIDTH, TileData, TileSet, TileUndoBuffer,
@@ -106,6 +106,12 @@ pub struct GuiState {
     pub selected_view_x: usize,
     pub selected_view_y: usize,
     pub is_view_dragging: bool,
+
+    // Atari View scroll state (C# `AtariView.OffsetX` / `OffsetY`) and the
+    // visible screen width preference (C# `comboBoxBytes`: 0=32, 1=40, 2=48).
+    pub view_offset_x: usize,
+    pub view_offset_y: usize,
+    pub view_bytes_mode: usize,
 
     // Palette Editor State & ColorSets (Phase 21B-10 G-8)
     pub selected_color_reg: usize, // 0..9
@@ -232,6 +238,9 @@ impl GuiState {
             stay_in_paste_mode: false,
             paste_into_font_nr: 1,
             is_view_dragging: false,
+            view_offset_x: 0,
+            view_offset_y: 0,
+            view_bytes_mode: 1,
             selected_color_reg: 1,
             show_color_selector: false,
             current_color_set_idx: 0,
@@ -870,6 +879,65 @@ impl GuiState {
     // VIEW EDITOR OPERATIONS (Phase 16)
     // =========================================================================
 
+    /// Actual screen width in bytes selected by the user (C# `GetActualViewWidth`).
+    pub fn actual_view_width(&self) -> usize {
+        match self.view_bytes_mode {
+            0 => 32,
+            2 => 48,
+            _ => 40,
+        }
+    }
+
+    /// Number of view columns currently drawn (C# `Math.Min(GetActualViewWidth(), AtariView.Width)`).
+    pub fn visible_view_columns(&self) -> usize {
+        self.actual_view_width().min(self.project.width)
+    }
+
+    /// Number of view rows currently drawn (C# `ViewHeight`: 13 in Mode 5, else full height).
+    pub fn visible_view_rows(&self) -> usize {
+        if self.active_color_mode == 2 {
+            13
+        } else {
+            self.project.height
+        }
+    }
+
+    /// Maximum horizontal scroll offset (C# `hScrollBar.Maximum`).
+    pub fn max_view_offset_x(&self) -> usize {
+        self.project
+            .width
+            .saturating_sub(self.visible_view_columns())
+    }
+
+    /// Maximum vertical scroll offset (C# `vScrollBar.Maximum`).
+    pub fn max_view_offset_y(&self) -> usize {
+        self.project.height.saturating_sub(self.visible_view_rows())
+    }
+
+    /// Clamp the scroll offsets to the current valid range.
+    pub fn clamp_view_offsets(&mut self) {
+        self.view_offset_x = self.view_offset_x.min(self.max_view_offset_x());
+        self.view_offset_y = self.view_offset_y.min(self.max_view_offset_y());
+    }
+
+    /// Change the view byte width preference (0 = 32, 1 = 40, 2 = 48).
+    pub fn set_view_bytes_mode(&mut self, mode: usize) {
+        self.view_bytes_mode = mode.min(2);
+        self.clamp_view_offsets();
+        self.is_dirty = true;
+        self.status_message = format!("View width set to {} bytes", self.actual_view_width());
+    }
+
+    /// Set the horizontal view scroll offset, clamped to the valid range.
+    pub fn set_view_scroll_x(&mut self, x: usize) {
+        self.view_offset_x = x.min(self.max_view_offset_x());
+    }
+
+    /// Set the vertical view scroll offset, clamped to the valid range.
+    pub fn set_view_scroll_y(&mut self, y: usize) {
+        self.view_offset_y = y.min(self.max_view_offset_y());
+    }
+
     /// Save current view screen state to view undo history.
     pub fn push_view_undo(&mut self) {
         self.view_undo.push(ViewUndoState::new(
@@ -918,15 +986,15 @@ impl GuiState {
         can_r
     }
 
-    /// Modify a single cell in the 40x26 view screen with undo tracking.
+    /// Modify a single cell in the view screen with undo tracking.
     pub fn set_view_cell(&mut self, x: usize, y: usize, char_code: u8) {
-        if x >= 40 || y >= 26 {
+        if x >= self.project.width || y >= self.project.height {
             return;
         }
         self.push_view_undo();
         self.selected_view_x = x;
         self.selected_view_y = y;
-        let idx = y * 40 + x;
+        let idx = y * self.project.width + x;
         if idx < self.project.view_bytes.len() {
             self.project.view_bytes[idx] = char_code;
         }
@@ -935,12 +1003,12 @@ impl GuiState {
 
     /// Drag-modify cell without pushing extra undo state on each move.
     pub fn drag_view_cell(&mut self, x: usize, y: usize, char_code: u8) {
-        if x >= 40 || y >= 26 {
+        if x >= self.project.width || y >= self.project.height {
             return;
         }
         self.selected_view_x = x;
         self.selected_view_y = y;
-        let idx = y * 40 + x;
+        let idx = y * self.project.width + x;
         if idx < self.project.view_bytes.len() {
             self.project.view_bytes[idx] = char_code;
         }
@@ -949,12 +1017,12 @@ impl GuiState {
 
     /// Pipette / Eyedropper: Pick character and font from cell `(x, y)` into Character Editor & Font Selector.
     pub fn pick_view_cell(&mut self, x: usize, y: usize) -> (usize, usize) {
-        if x >= 40 || y >= 26 {
+        if x >= self.project.width || y >= self.project.height {
             return (0, 0);
         }
         self.selected_view_x = x;
         self.selected_view_y = y;
-        let idx = y * 40 + x;
+        let idx = y * self.project.width + x;
         let read_char = if idx < self.project.view_bytes.len() {
             self.project.view_bytes[idx] as usize
         } else {
@@ -1519,6 +1587,17 @@ impl GuiState {
             _ => 1,
         };
 
+        // Restore the screen byte width (`FortyBytes`) into the live GUI state
+        // (C# `comboBoxBytes.SelectedIndex = FortyBytes switch { "0" => 0, "2" => 2, _ => 1 }`).
+        self.view_bytes_mode = match self.project.forty_bytes.as_str() {
+            "0" => 0,
+            "2" => 2,
+            _ => 1,
+        };
+        self.view_offset_x = 0;
+        self.view_offset_y = 0;
+        self.clamp_view_offsets();
+
         // Match C# `LoadViewFile` → `SwopPageAction(0)`: when the project has
         // pages, Page 1 becomes the active view, regardless of which page was
         // active when the project was saved. This loads Page 1 WITHOUT saving
@@ -1594,6 +1673,14 @@ impl GuiState {
         // Persist the active color mode (`ColoredGfx`) before serializing.
         // Matches C# `WhatColorModeToSave`: 0 = B/W, 1 = Mode 4, 2 = Mode 5, 3 = Mode 10.
         self.project.colored_gfx = self.active_color_mode.min(3) as u8;
+
+        // Persist the screen byte width selection (`FortyBytes`), matching C#
+        // `SaveViewFile`: 32 => "0", 40 => "1", 48 => "2".
+        self.project.forty_bytes = match self.view_bytes_mode {
+            0 => "0".to_string(),
+            2 => "2".to_string(),
+            _ => "1".to_string(),
+        };
 
         // Persist embedded tiles from the live TileSet into the project DTO.
         // Matches C# `SaveViewFile`: iterate all 256 tiles, serializing only
@@ -1769,13 +1856,24 @@ impl GuiState {
 
     // 3. DERIVED STATE HELPERS
 
-    /// Generate 640x416 Slint Image representing the full Atari View screen.
+    /// Generate 640x416 Slint Image representing the visible Atari View viewport.
     pub fn generate_view_editor_image(&self) -> slint::Image {
         let mut pixel_buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(640, 416);
+        let cell_height = if self.active_color_mode == 2 { 32 } else { 16 };
+        let spec = ViewRenderSpec {
+            view_width: self.project.width,
+            view_height: self.project.height,
+            is_color: self.active_color_mode != 0,
+            cell_height,
+            offset_x: self.view_offset_x,
+            offset_y: self.view_offset_y,
+            visible_columns: self.visible_view_columns(),
+            visible_rows: self.visible_view_rows(),
+        };
         self.atlas_buffer.render_view_image_rgba(
             &self.project.view_bytes,
             &self.project.line_fonts,
-            self.active_color_mode != 0,
+            spec,
             pixel_buffer.make_mut_bytes(),
         );
         slint::Image::from_rgba8_premultiplied(pixel_buffer)

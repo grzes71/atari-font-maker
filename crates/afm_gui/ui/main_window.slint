@@ -37,6 +37,8 @@ export component MainWindow inherits Window {
     in-out property <bool> show_duplicates: false;
     in property <int> page_count: 1;
     in property <[string]> page_names;
+    // C# `CellHeight`: 16 px in Mono/Mode 4, 32 px in Mode 5 (glyphs 2x taller).
+    property <length> view_cell_height: root.active_color_mode == 2 ? 32px : 16px;
 
     property <length> win_w: root.view_bytes_mode == 0 ? 1082px : (root.view_bytes_mode == 1 ? 1210px : 1341px);
     property <length> hscroll_w: root.view_bytes_mode == 0 ? 545px : (root.view_bytes_mode == 1 ? 673px : 801px);
@@ -72,6 +74,12 @@ export component MainWindow inherits Window {
     in property <bool> can_view_undo: false;
     in property <bool> can_view_redo: false;
     in property <[int]> view_line_fonts;
+    in property <int> view_offset_x: 0;
+    in property <int> view_offset_y: 0;
+    in property <int> view_offset_x_max: 0;
+    in property <int> view_offset_y_max: 0;
+    in property <int> view_visible_columns: 40;
+    in property <int> view_visible_rows: 26;
 
     // MegaCopy properties & Options (Phase 21B-9 G-7)
     in property <bool> megacopy_active: false;
@@ -242,6 +250,9 @@ export component MainWindow inherits Window {
     callback view_cell_dragged(int, int);
     callback view_cell_released();
     callback view_line_font_clicked(int, int, bool, bool);
+    callback view_scroll_x_changed(int);
+    callback view_scroll_y_changed(int);
+    callback view_bytes_mode_changed(int);
     callback view_prev_page();
     callback view_next_page();
     callback view_add_page();
@@ -1010,26 +1021,28 @@ export component MainWindow inherits Window {
 
         // ── Section D: Right side (Atari View + controls) ──
 
-        // Line-font strip (15px)
+        // Line-font strip (15px); shows one entry per visible row, offset by the
+        // vertical scroll position (Mode 5 shows 13 lines of 32 px).
         Rectangle {
             x: 520px; y: 0px; width: 15px; height: 416px;
             background: #ffffff;
-            for i in 26 : Rectangle {
-                y: i * 16px; width: 15px; height: 16px;
+            for i in root.view_visible_rows : Rectangle {
+                y: i * root.view_cell_height; width: 15px; height: root.view_cell_height;
                 background: #ffffff;
-                Text { text: root.view_line_fonts[i]; color: #000000; font-size: 9px;
+                Text { text: root.view_line_fonts[root.view_offset_y + i]; color: #000000; font-size: 9px;
                     width: 100%; height: 100%;
                     horizontal-alignment: center; vertical-alignment: center; }
                 TouchArea {
                     pointer-event(event) => {
                         if event.kind == PointerEventKind.down {
                             let btn = event.button == PointerEventButton.right ? 1 : 0;
-                            root.view_line_font_clicked(i, btn, event.modifiers.control, event.modifiers.shift);
+                            root.view_line_font_clicked(root.view_offset_y + i, btn, event.modifiers.control, event.modifiers.shift);
                         }
                     }
                 }
             }
-            Rectangle { y: 384px; width: 15px; height: 1px; background: #000000; }
+            Rectangle { y: 384px; width: 15px; height: 1px; background: #000000;
+                visible: root.active_color_mode != 2; }
         }
 
         // Atari View surface (768x416; 48x26 @ 16px)
@@ -1045,44 +1058,47 @@ export component MainWindow inherits Window {
                 width: 640px; height: 416px;
                 pointer-event(event) => {
                     if event.kind == PointerEventKind.down {
-                        let rx = Math.min(39, Math.max(0, Math.floor(self.mouse-x / 16px)));
-                        let ry = Math.min(25, Math.max(0, Math.floor(self.mouse-y / 16px)));
+                        let rx = Math.min(root.view_visible_columns - 1, Math.max(0, Math.floor(self.mouse-x / 16px)));
+                        let ry = Math.min(root.view_visible_rows - 1, Math.max(0, Math.floor(self.mouse-y / root.view_cell_height)));
                         let btn = event.button == PointerEventButton.right ? 1 : 0;
-                        root.view_cell_clicked(rx, ry, btn);
+                        root.view_cell_clicked(root.view_offset_x + rx, root.view_offset_y + ry, btn);
                     } else if event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel {
                         root.view_cell_released();
                     }
                 }
                 moved => {
                     if self.pressed {
-                        let rx = Math.min(39, Math.max(0, Math.floor(self.mouse-x / 16px)));
-                        let ry = Math.min(25, Math.max(0, Math.floor(self.mouse-y / 16px)));
-                        root.view_cell_dragged(rx, ry);
+                        let rx = Math.min(root.view_visible_columns - 1, Math.max(0, Math.floor(self.mouse-x / 16px)));
+                        let ry = Math.min(root.view_visible_rows - 1, Math.max(0, Math.floor(self.mouse-y / root.view_cell_height)));
+                        root.view_cell_dragged(root.view_offset_x + rx, root.view_offset_y + ry);
                     }
                 }
             }
         }
 
-        // Scrollbars (visual; view offset not yet exposed by the backend)
-        Rectangle {
+        // Horizontal scrollbar (C# hScrollBar)
+        Slider {
             x: 520px; y: 417px; width: root.hscroll_w; height: 17px;
-            background: #f0f0f0;
-            border-width: 1px;
-            border-color: #7f7f7f;
-            Rectangle { x: 1px; y: 1px; width: 40px; height: 15px; background: #d0d0d0; }
+            minimum: 0; maximum: root.view_offset_x_max;
+            value: root.view_offset_x;
+            enabled: root.view_offset_x_max > 0;
+            changed(v) => { root.view_scroll_x_changed(Math.round(v)); }
         }
-        Rectangle {
+
+        // Vertical scrollbar (C# vScrollBar)
+        Slider {
             x: root.vscroll_x; y: 0px; width: 17px; height: 416px;
-            background: #f0f0f0;
-            border-width: 1px;
-            border-color: #7f7f7f;
-            Rectangle { x: 1px; y: 1px; width: 15px; height: 40px; background: #d0d0d0; }
+            orientation: vertical;
+            minimum: 0; maximum: root.view_offset_y_max;
+            value: root.view_offset_y;
+            enabled: root.view_offset_y_max > 0;
+            changed(v) => { root.view_scroll_y_changed(Math.round(v)); }
         }
 
         // Info labels under the view (y ≈ 436)
         Text { x: 520px; y: 436px; text: "Char: Font " + (root.selected_char_index < 256 ? (root.selected_bank_pair == 0 ? 1 : 3) : (root.selected_bank_pair == 0 ? 2 : 4)) + " " + root.char_hex_label + " " + root.char_dec_label;
             font-size: 10px; color: #000000; }
-        Text { x: 711px; y: 436px; text: "TL: [0,0]-[39,25]"; font-size: 10px; color: #000000; }
+        Text { x: 711px; y: 436px; text: "TL: [" + root.view_offset_x + "," + root.view_offset_y + "]-[" + (root.view_offset_x + 39) + "," + (root.view_offset_y + 25) + "]"; font-size: 10px; color: #000000; }
         Text { x: 863px; y: 436px; text: "Area:"; font-size: 10px; color: #000000; }
 
         // View action buttons (y = 454)
@@ -1152,7 +1168,10 @@ export component MainWindow inherits Window {
         ComboBox { x: 810px; y: 546px; width: 67px; height: 21px;
             model: ["32 Bytes","40 Bytes","48 Bytes"];
             current_index: root.view_bytes_mode;
-            selected(v) => { root.view_bytes_mode = self.current_index; } }
+            selected(v) => {
+                root.view_bytes_mode = self.current_index;
+                root.view_bytes_mode_changed(self.current_index);
+            } }
         Rectangle { x: 1139px; y: 547px; width: 188px; height: 25px;
             visible: root.megacopy_active;
             background: #2b5b8e;
