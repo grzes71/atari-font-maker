@@ -1,5 +1,6 @@
 import { Button, CheckBox, ComboBox, Slider } from "std-widgets.slint";
 import { WButton } from "components/wbutton.slint";
+import { WCheckBox } from "components/wcheckbox.slint";
 import { MenuBar } from "components/menu_bar.slint";
 import { Toolbar } from "components/toolbar.slint";
 import { CharEditorPanel } from "components/char_editor_panel.slint";
@@ -32,6 +33,7 @@ export component MainWindow inherits Window {
     in-out property <int> view_bytes_mode: 1; // 0=32, 1=40, 2=48
     in-out property <int> last_color_mode: 1; // 1=Mode4, 2=Mode5, 3=Mode10
     in-out property <bool> show_recolor: false;
+    in-out property <bool> show_duplicates: false;
     in property <int> page_count: 1;
     in property <[string]> page_names;
 
@@ -896,7 +898,9 @@ export component MainWindow inherits Window {
             x: -1px; y: 238px; width: 515px; height: 54px;
             background: #f0f0f0;
 
-            CheckBox { x: 8px; y: 6px; text: "Show Duplicates"; font-size: 10px; }
+            WCheckBox { x: 8px; y: 6px; width: 112px; height: 17px; text: "Show Duplicates";
+                checked: root.show_duplicates;
+                clicked => { root.show_duplicates = !root.show_duplicates; } }
             WButton { x: 159px; y: 2px; width: 216px; height: 21px; text: "Mega Copy";
                 checked: root.megacopy_active;
                 clicked => { root.toggle_megacopy(); } }
@@ -958,7 +962,8 @@ export component MainWindow inherits Window {
             x: 2px; y: 298px; width: 512px; height: 256px;
             background: #000000;
 
-            Image { width: 512px; height: 256px; source: root.font_selector_image; }
+            Image { x: 0px; y: 0px; width: 512px; height: 256px; image-fit: fill;
+                source: root.font_selector_image; }
 
             // Hollow red 20x20 selection cursor, offset 2px outside the cell
             Rectangle {
@@ -1020,10 +1025,12 @@ export component MainWindow inherits Window {
             x: 536px; y: 0px; width: 768px; height: 416px;
             background: root.palette_reg_colors[1];
 
-            Image { width: 640px; height: 416px; source: root.view_editor_image; }
+            Image { x: 0px; y: 0px; width: 640px; height: 416px; image-fit: fill;
+                source: root.view_editor_image; }
 
             TouchArea {
-                width: 768px; height: 416px;
+                x: 0px; y: 0px;
+                width: 640px; height: 416px;
                 pointer-event(event) => {
                     if event.kind == PointerEventKind.down {
                         let rx = Math.min(39, Math.max(0, Math.floor(self.mouse-x / 16px)));
@@ -1110,10 +1117,10 @@ export component MainWindow inherits Window {
             enabled: root.megacopy_active;
             clicked => { root.open_enter_text(); } }
         Text { x: 810px; y: 483px; text: "Undo/Redo"; font-size: 10px; color: #000000; }
-        CheckBox { x: 898px; y: 483px; text: "Skip char #" + root.megacopy_skip_char_val + " on paste";
-            font-size: 10px;
+        WCheckBox { x: 898px; y: 483px; width: 150px; height: 17px;
+            text: "Skip char #" + root.megacopy_skip_char_val + " on paste";
             checked: root.megacopy_skip_char;
-            toggled => { root.toggle_skip_char(); } }
+            clicked => { root.toggle_skip_char(); } }
         WButton { x: 820px; y: 499px; width: 22px; height: 22px; text: "↶";
             enabled: root.can_view_undo; clicked => { root.view_undo_clicked(); } }
         WButton { x: 843px; y: 499px; width: 22px; height: 22px; text: "↷";
@@ -1124,9 +1131,10 @@ export component MainWindow inherits Window {
             changed(v) => { root.set_skip_char_value(Math.round(v)); } }
         WButton { x: 520px; y: 508px; width: 86px; height: 23px; text: "View Actions";
             clicked => { root.open_view_actions(); } }
-        CheckBox { x: 812px; y: 527px; text: "Stay in Paste Mode"; font-size: 10px;
+        WCheckBox { x: 812px; y: 527px; width: 125px; height: 17px;
+            text: "Stay in Paste Mode";
             checked: root.megacopy_stay_in_paste_mode;
-            toggled => { root.toggle_stay_in_paste_mode(); } }
+            clicked => { root.toggle_stay_in_paste_mode(); } }
         WButton { x: 520px; y: 535px; width: 85px; height: 23px; text: "Analyse";
             clicked => { root.open_analysis(); } }
         ComboBox { x: 810px; y: 546px; width: 67px; height: 21px;
