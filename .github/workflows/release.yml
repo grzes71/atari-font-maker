@@ -212,7 +212,14 @@ jobs:
       VERSION: ${{ needs.determine-version.outputs.version }}
       TARGET_SHA: ${{ needs.determine-version.outputs.sha }}
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
+      # The `gh` CLI shells out to `git`, so a repository must be present.
+      - name: Checkout repository (target commit)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.determine-version.outputs.sha }}
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
