@@ -1,0 +1,51 @@
+import { Button } from "std-widgets.slint";
+
+export component AboutDialog inherits Rectangle {
+    in property <bool> is_open: false;
+    callback close_clicked();
+
+    visible: root.is_open;
+    background: #000000aa;
+
+    Rectangle {
+        width: 520px;
+        height: 280px;
+        background: #252526;
+        border-color: #e2c08d;
+        border-width: 2px;
+        border-radius: 6px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            Text {
+                text: "Atari FontMaker";
+                color: #ffffff;
+                font_size: 18px;
+                font_weight: 700;
+            }
+
+            Text {
+                text: "Rust + Slint port of the classic Atari FontMaker.\n\nOriginal authors: matosimi & RetroCoder\nRust port: grzes71\n\nhttp://matosimi.atari.org\nhttps://retro.cerebus.co.za";
+                color: #e0e0e0;
+                font_size: 13px;
+                wrap: word-wrap;
+                vertical-stretch: 1;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+
+                Button {
+                    text: "Close";
+                    primary: true;
+                    clicked => { root.close_clicked(); }
+                }
+            }
+        }
+    }
+}

@@ -19,6 +19,7 @@ import { ViewActionsModal } from "components/view_actions_modal.slint";
 import { ImportViewModal } from "components/import_view_modal.slint";
 import { EnterTextModal } from "components/enter_text_modal.slint";
 import { ConfirmDialog } from "components/confirm_dialog.slint";
+import { AboutDialog } from "components/about_dialog.slint";
 
 export component MainWindow inherits Window {
     in-out property <string> window_title: "Atari FontMaker [Rust + Slint]";
@@ -34,6 +35,7 @@ export component MainWindow inherits Window {
     in-out property <int> last_color_mode: 1; // 1=Mode4, 2=Mode5, 3=Mode10
     in-out property <bool> show_recolor: false;
     in-out property <bool> show_duplicates: false;
+    in-out property <bool> show_about_modal: false;
     in property <int> page_count: 1;
     in property <[string]> page_names;
     // C# `CellHeight`: 16 px in Mono/Mode 4, 32 px in Mode 5 (glyphs 2x taller).
@@ -182,6 +184,7 @@ export component MainWindow inherits Window {
     callback save_as_clicked();
     callback open_font(int);
     callback save_font(int);
+    callback clear_font(int);
     callback open_palette();
     callback save_palette();
     callback open_tile_dialog();
@@ -674,10 +677,13 @@ export component MainWindow inherits Window {
             WButton { x: 52px; y: 80px; width: 50px; height: 20px; text: "as...";
                 clicked => { root.save_font(root.selected_bank_pair == 0 ? 2 : 4); } }
             WButton { x: 3px; y: 106px; width: 50px; height: 20px;
-                text: "Clear " + (root.selected_bank_pair == 0 ? "1" : "3"); }
+                text: "Clear " + (root.selected_bank_pair == 0 ? "1" : "3");
+                clicked => { root.clear_font(0); } }
             WButton { x: 52px; y: 106px; width: 50px; height: 20px;
-                text: "Clear " + (root.selected_bank_pair == 0 ? "2" : "4"); }
-            WButton { x: 8px; y: 130px; width: 89px; height: 20px; text: "About"; }
+                text: "Clear " + (root.selected_bank_pair == 0 ? "2" : "4");
+                clicked => { root.clear_font(1); } }
+            WButton { x: 8px; y: 130px; width: 89px; height: 20px; text: "About";
+                clicked => { root.show_about_modal = true; } }
             WButton { x: 8px; y: 154px; width: 89px; height: 20px; text: "Quit";
                 clicked => { root.quit_clicked(); } }
         }
@@ -1373,6 +1379,11 @@ export component MainWindow inherits Window {
 
             confirmed => { root.confirm_clicked(); }
             cancelled => { root.cancel_clicked(); }
+        }
+
+        AboutDialog {
+            is_open: root.show_about_modal;
+            close_clicked => { root.show_about_modal = false; }
         }
     }
 }

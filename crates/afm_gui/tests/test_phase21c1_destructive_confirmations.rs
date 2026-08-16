@@ -430,3 +430,61 @@ fn test_quit_confirm_saves_configuration_without_panic() {
         }
     }
 }
+
+// =========================================================================
+// Clear Font (C# `ClearFont1_Click`/`ClearFont2_Click` → `ActionClearFont`)
+// =========================================================================
+
+#[test]
+fn test_clear_font_requires_confirmation_and_clears_active_bank() {
+    let (state, ctrl, _, _) = controller();
+    let fonts_before = state.borrow().fonts.as_bytes().to_vec();
+
+    // Staging must not execute before confirmation.
+    ctrl.clear_font(0);
+    assert!(state.borrow().show_confirm_dialog);
+    assert_eq!(
+        state.borrow().fonts.as_bytes(),
+        &fonts_before[..],
+        "clear must not run before confirmation"
+    );
+
+    // Cancel keeps state unchanged.
+    ctrl.cancel_pending();
+    assert!(!state.borrow().show_confirm_dialog);
+    assert_eq!(state.borrow().fonts.as_bytes(), &fonts_before[..]);
+
+    // Confirm clears bank 1 (font 1) when bank pair 1+2 is active.
+    ctrl.clear_font(0);
+    ctrl.confirm_pending();
+    assert!(!state.borrow().show_confirm_dialog);
+    assert!(
+        state.borrow().fonts.as_bytes()[0 * 1024..1 * 1024]
+            .iter()
+            .all(|&b| b == 0)
+    );
+
+    // "Clear 2" clears bank 2 (font 2) in the same pair.
+    ctrl.clear_font(1);
+    ctrl.confirm_pending();
+    assert!(
+        state.borrow().fonts.as_bytes()[1 * 1024..2 * 1024]
+            .iter()
+            .all(|&b| b == 0)
+    );
+
+    // Bank pair 3+4: the same "Clear 1" offset maps to bank 3 (font 3).
+    state.borrow_mut().selected_bank_pair = 1;
+    assert!(
+        state.borrow().fonts.as_bytes()[2 * 1024..3 * 1024]
+            .iter()
+            .any(|&b| b != 0)
+    );
+    ctrl.clear_font(0);
+    ctrl.confirm_pending();
+    assert!(
+        state.borrow().fonts.as_bytes()[2 * 1024..3 * 1024]
+            .iter()
+            .all(|&b| b == 0)
+    );
+}
