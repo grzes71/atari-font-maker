@@ -2,6 +2,7 @@
 mod state;
 
 use afm_core::font::bank::FontBankSet;
+use afm_core::renderer::buffer::ViewRenderSpec;
 use state::GuiState;
 
 #[test]
@@ -395,11 +396,23 @@ fn test_phase17_audit_color_registers_mutation_propagates_to_renderer_and_atlas(
 
     // 1. Capture initial atlas and view bytes
     let initial_atlas = state.atlas_buffer.as_bytes().to_vec();
+    let (vw, vh) = (state.project.width, state.project.height);
+    let (vcols, vrows) = (state.visible_view_columns(), state.visible_view_rows());
     let mut initial_view_buf = vec![0u8; 640 * 416 * 4];
+    let spec = ViewRenderSpec {
+        view_width: vw,
+        view_height: vh,
+        is_color: false,
+        cell_height: 16,
+        offset_x: 0,
+        offset_y: 0,
+        visible_columns: vcols,
+        visible_rows: vrows,
+    };
     state.atlas_buffer.render_view_image_rgba(
         &state.project.view_bytes,
         &state.project.line_fonts,
-        false,
+        spec,
         &mut initial_view_buf,
     );
 
@@ -415,7 +428,7 @@ fn test_phase17_audit_color_registers_mutation_propagates_to_renderer_and_atlas(
     state.atlas_buffer.render_view_image_rgba(
         &state.project.view_bytes,
         &state.project.line_fonts,
-        false,
+        spec,
         &mut modified_view_buf,
     );
     assert_ne!(initial_view_buf, modified_view_buf);
@@ -578,4 +591,234 @@ fn test_phase18_view_exporter_gui_generation() {
     // 3. MADS .dta
     let mads = state.export_view_text(FormatType::MADSdta, DataType::Hexadecimal, region, false);
     assert!(mads.contains("dta "));
+}
+
+/// Mode 5 must draw every Atari View glyph twice as tall as Mode 4
+/// (C# `CellHeight = 32` vs `16`, with a 16x16 source glyph stretched 2x).
+#[test]
+fn test_mode5_view_glyphs_double_height() {
+    let mut state = GuiState::new();
+    state.active_color_mode = 2; // Mode 5
+    state.selected_draw_color = 1; // PF0 (non-background)
+    state.set_pixel(0, 0, 0); // top-left 2-bit pixel of glyph 0
+    state.render_full_atlas();
+
+    fn row(buf: &[u8], stride: usize, r: usize) -> &[u8] {
+        &buf[r * stride..(r + 1) * stride]
+    }
+
+    let view_bytes = state.project.view_bytes.clone();
+    let line_fonts = state.project.line_fonts.clone();
+    let stride = 640 * 4;
+
+    // Mode 5 (cell_height = 32): glyph row 0 spans output rows 0..=3.
+    let mut mode5 = vec![0u8; 640 * 416 * 4];
+    state.atlas_buffer.render_view_image_rgba(
+        &view_bytes,
+        &line_fonts,
+        ViewRenderSpec {
+            view_width: 40,
+            view_height: 26,
+            is_color: true,
+            cell_height: 32,
+            offset_x: 0,
+            offset_y: 0,
+            visible_columns: 40,
+            visible_rows: 13,
+        },
+        &mut mode5,
+    );
+    assert_eq!(
+        row(&mode5, stride, 0),
+        row(&mode5, stride, 3),
+        "Mode 5 must double rows vertically"
+    );
+    assert_ne!(
+        row(&mode5, stride, 0),
+        row(&mode5, stride, 4),
+        "Mode 5 glyph row 0 must end before output row 4"
+    );
+
+    // Mode 4 (cell_height = 16): glyph row 0 spans output rows 0..=1 only.
+    state.active_color_mode = 1;
+    state.render_full_atlas();
+    let mut mode4 = vec![0u8; 640 * 416 * 4];
+    state.atlas_buffer.render_view_image_rgba(
+        &view_bytes,
+        &line_fonts,
+        ViewRenderSpec {
+            view_width: 40,
+            view_height: 26,
+            is_color: true,
+            cell_height: 16,
+            offset_x: 0,
+            offset_y: 0,
+            visible_columns: 40,
+            visible_rows: 26,
+        },
+        &mut mode4,
+    );
+    assert_eq!(
+        row(&mode4, stride, 0),
+        row(&mode4, stride, 1),
+        "Mode 4 must not double rows vertically"
+    );
+    assert_ne!(
+        row(&mode4, stride, 0),
+        row(&mode4, stride, 2),
+        "Mode 4 glyph row 0 must end before output row 2"
+    );
+}
+
+/// Scroll offsets must clamp to the ranges computed from the color mode and the
+/// selected screen byte width (C# `UpdateHVScrollBars`).
+#[test]
+fn test_view_scroll_offsets_clamp_to_mode_and_width() {
+    let mut state = GuiState::new();
+
+    // Mono/Mode 4/10: full height visible, no vertical scrolling.
+    assert_eq!(state.visible_view_rows(), 26);
+    assert_eq!(state.max_view_offset_y(), 0);
+
+    // Mode 5: 13 rows visible, 13 rows of vertical scrolling.
+    state.active_color_mode = 2;
+    assert_eq!(state.visible_view_rows(), 13);
+    assert_eq!(state.max_view_offset_y(), 13);
+
+    // Default 40-byte mode: full width visible, no horizontal scrolling.
+    assert_eq!(state.view_bytes_mode, 1);
+    assert_eq!(state.visible_view_columns(), 40);
+    assert_eq!(state.max_view_offset_x(), 0);
+
+    // 32-byte mode: 32 of 40 columns visible, 8 columns of horizontal scrolling.
+    state.set_view_bytes_mode(0);
+    assert_eq!(state.visible_view_columns(), 32);
+    assert_eq!(state.max_view_offset_x(), 8);
+
+    // Offsets clamp to the valid range.
+    state.set_view_scroll_x(100);
+    state.set_view_scroll_y(100);
+    assert_eq!(state.view_offset_x, 8);
+    assert_eq!(state.view_offset_y, 13);
+
+    // Switching back to Mono clamps the vertical offset to 0.
+    state.active_color_mode = 0;
+    state.clamp_view_offsets();
+    assert_eq!(state.view_offset_y, 0);
+}
+
+/// The rendered viewport must follow the scroll offsets: the same output pixel
+/// shows the cell at `offset` instead of the cell at the origin.
+#[test]
+fn test_view_scroll_renders_offset_viewport() {
+    fn px(buf: &[u8], x: usize, y: usize) -> [u8; 4] {
+        let i = (y * 640 + x) * 4;
+        [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+    }
+    let is_blank = |buf: &[u8], x: usize, y: usize| px(buf, x, y) == [0, 0, 0, 255];
+
+    let mut state = GuiState::new();
+
+    // Glyph 0 gets a non-background pixel; glyph 1 stays blank.
+    state.active_color_mode = 2;
+    state.selected_char_index = 0;
+    state.selected_draw_color = 1; // PF0
+    state.set_pixel(0, 0, 0);
+    state.selected_char_index = 1;
+    state.clear_character();
+    state.render_full_atlas();
+
+    let line_fonts = state.project.line_fonts.clone();
+
+    // Vertical scroll (Mode 5): cell (0,0) = glyph 0, cell (0,13) = glyph 1.
+    let mut view_bytes = vec![1u8; 40 * 26];
+    view_bytes[0] = 0;
+
+    let mut top = vec![0u8; 640 * 416 * 4];
+    state.atlas_buffer.render_view_image_rgba(
+        &view_bytes,
+        &line_fonts,
+        ViewRenderSpec {
+            view_width: 40,
+            view_height: 26,
+            is_color: true,
+            cell_height: 32,
+            offset_x: 0,
+            offset_y: 0,
+            visible_columns: 40,
+            visible_rows: 13,
+        },
+        &mut top,
+    );
+    assert!(!is_blank(&top, 0, 0), "row 0 must show glyph 0 at offset 0");
+
+    let mut scrolled = vec![0u8; 640 * 416 * 4];
+    state.atlas_buffer.render_view_image_rgba(
+        &view_bytes,
+        &line_fonts,
+        ViewRenderSpec {
+            view_width: 40,
+            view_height: 26,
+            is_color: true,
+            cell_height: 32,
+            offset_x: 0,
+            offset_y: 13,
+            visible_columns: 40,
+            visible_rows: 13,
+        },
+        &mut scrolled,
+    );
+    assert!(
+        is_blank(&scrolled, 0, 0),
+        "row 13 (blank glyph 1) must show at offset 13"
+    );
+
+    // Horizontal scroll (Mode 4, 32-byte mode): cell (0,0) = glyph 0, cell (8,0) = glyph 1.
+    state.active_color_mode = 1;
+    state.view_bytes_mode = 0;
+    state.render_full_atlas();
+    let mut view_bytes = vec![1u8; 40 * 26];
+    view_bytes[0] = 0;
+
+    let mut left = vec![0u8; 640 * 416 * 4];
+    state.atlas_buffer.render_view_image_rgba(
+        &view_bytes,
+        &line_fonts,
+        ViewRenderSpec {
+            view_width: 40,
+            view_height: 26,
+            is_color: true,
+            cell_height: 16,
+            offset_x: 0,
+            offset_y: 0,
+            visible_columns: 32,
+            visible_rows: 26,
+        },
+        &mut left,
+    );
+    assert!(
+        !is_blank(&left, 0, 0),
+        "column 0 must show glyph 0 at offset 0"
+    );
+
+    let mut right = vec![0u8; 640 * 416 * 4];
+    state.atlas_buffer.render_view_image_rgba(
+        &view_bytes,
+        &line_fonts,
+        ViewRenderSpec {
+            view_width: 40,
+            view_height: 26,
+            is_color: true,
+            cell_height: 16,
+            offset_x: 8,
+            offset_y: 0,
+            visible_columns: 32,
+            visible_rows: 26,
+        },
+        &mut right,
+    );
+    assert!(
+        is_blank(&right, 0, 0),
+        "column 8 (blank glyph 1) must show at offset 8"
+    );
 }

@@ -15,6 +15,28 @@ pub const ATLAS_STRIDE: usize = ATLAS_WIDTH * BYTES_PER_PIXEL;
 /// Total size of the atlas buffer in bytes (512 * 1024 * 4 = 2,097,152 bytes).
 pub const ATLAS_BUFFER_SIZE: usize = ATLAS_WIDTH * ATLAS_HEIGHT * BYTES_PER_PIXEL;
 
+/// Parameters describing which part of the Atari View grid to rasterize into
+/// the fixed 640x416 viewport.
+#[derive(Debug, Clone, Copy)]
+pub struct ViewRenderSpec {
+    /// Full (possibly scrollable) view grid width in cells.
+    pub view_width: usize,
+    /// Full (possibly scrollable) view grid height in cells.
+    pub view_height: usize,
+    /// Whether to sample glyphs from the color half of the font atlas.
+    pub is_color: bool,
+    /// Vertical cell size: 16 px (Mono/Mode 4/10) or 32 px (Mode 5).
+    pub cell_height: usize,
+    /// Horizontal scroll offset in cells.
+    pub offset_x: usize,
+    /// Vertical scroll offset in cells.
+    pub offset_y: usize,
+    /// Number of columns currently visible (0..=40).
+    pub visible_columns: usize,
+    /// Number of rows currently visible (13 in Mode 5, otherwise full height).
+    pub visible_rows: usize,
+}
+
 /// Contiguous 512x1024 32bpp (BGRA) raster buffer for font caching and display.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontAtlasBuffer {
@@ -157,33 +179,52 @@ impl FontAtlasBuffer {
         }
     }
 
-    /// Render a complete 40x26 Atari View screen (640x416 px RGBA) from the 512x1024 atlas.
+    /// Render the visible Atari View viewport (640x416 px RGBA) from the
+    /// 512x1024 atlas.
+    ///
+    /// `view_width`/`view_height` describe the full (possibly scrollable) view
+    /// grid. `offset_x`/`offset_y` are the current scroll positions and
+    /// `visible_columns`/`visible_rows` the number of cells shown. Any output
+    /// pixel outside the visible cells is left transparent so the caller's
+    /// background (the view BAK color) shows through.
+    ///
+    /// `cell_height` selects the vertical cell size: 16 px (Mono/Mode 4/10) or
+    /// 32 px (Mode 5, where every glyph is drawn twice as tall). The glyphs are
+    /// always 16x16 in the atlas, so a 32 px cell vertically duplicates each
+    /// source pixel row (nearest-neighbor), matching C# `RedrawView` which uses
+    /// `destRect.Height = CellHeight` while keeping `srcRect.Height = 16`.
     pub fn render_view_image_rgba(
         &self,
         view_bytes: &[u8],
         line_fonts: &[u8],
-        is_color: bool,
+        spec: ViewRenderSpec,
         out_rgba: &mut [u8],
     ) {
-        let view_width = 40;
-        let view_height = 26;
-        let dst_width = view_width * 16;
-        let dst_height = view_height * 16;
+        assert!(spec.cell_height == 16 || spec.cell_height == 32);
+        let dst_width = 640;
+        let dst_height = 416;
         assert_eq!(out_rgba.len(), dst_width * dst_height * BYTES_PER_PIXEL);
+        debug_assert!(spec.offset_x + spec.visible_columns <= spec.view_width);
+        debug_assert!(spec.offset_y + spec.visible_rows <= spec.view_height);
 
-        let color_offset = if is_color { 512 } else { 0 };
+        // Leave non-visible pixels transparent (premultiplied RGBA 0,0,0,0).
+        out_rgba.fill(0);
+
+        let color_offset = if spec.is_color { 512 } else { 0 };
         let dst_stride = dst_width * BYTES_PER_PIXEL;
 
-        for vy in 0..view_height {
-            let font_nr = if vy < line_fonts.len() {
-                line_fonts[vy].clamp(1, 4) as usize
+        for vy in 0..spec.visible_rows {
+            let abs_row = spec.offset_y + vy;
+            let font_nr = if abs_row < line_fonts.len() {
+                line_fonts[abs_row].clamp(1, 4) as usize
             } else {
                 1
             };
             let font_y_offset = (font_nr - 1) * 128;
 
-            for vx in 0..view_width {
-                let cell_idx = vy * view_width + vx;
+            for vx in 0..spec.visible_columns {
+                let abs_col = spec.offset_x + vx;
+                let cell_idx = abs_row * spec.view_width + abs_col;
                 let char_code = if cell_idx < view_bytes.len() {
                     view_bytes[cell_idx] as usize
                 } else {
@@ -197,10 +238,12 @@ impl FontAtlasBuffer {
                 let src_base_y = ry * 16 + font_y_offset + color_offset;
 
                 let dst_base_x = vx * 16;
-                let dst_base_y = vy * 16;
+                let dst_base_y = vy * spec.cell_height;
 
-                for py in 0..16 {
-                    let sy = src_base_y + py;
+                for py in 0..spec.cell_height {
+                    // For cell_height == 16 this is the identity; for 32 it
+                    // duplicates each source row, stretching the glyph 2x.
+                    let sy = src_base_y + py * 16 / spec.cell_height;
                     let dy = dst_base_y + py;
 
                     for px in 0..16 {

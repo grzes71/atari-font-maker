@@ -129,6 +129,15 @@ impl GuiController {
             ui.set_can_view_undo(state.can_view_undo());
             ui.set_can_view_redo(state.can_view_redo());
 
+            // View scroll state (C# AtariView.OffsetX/OffsetY + scrollbar ranges)
+            ui.set_view_offset_x(state.view_offset_x as i32);
+            ui.set_view_offset_y(state.view_offset_y as i32);
+            ui.set_view_offset_x_max(state.max_view_offset_x() as i32);
+            ui.set_view_offset_y_max(state.max_view_offset_y() as i32);
+            ui.set_view_visible_columns(state.visible_view_columns() as i32);
+            ui.set_view_visible_rows(state.visible_view_rows() as i32);
+            ui.set_view_bytes_mode(state.view_bytes_mode as i32);
+
             // Per-line font indicators (1..4 for each of the 26 rows).
             let line_fonts: Vec<i32> = state
                 .project
@@ -358,6 +367,7 @@ impl GuiController {
         {
             let mut state = self.state.borrow_mut();
             state.active_color_mode = mode.min(3);
+            state.clamp_view_offsets();
             state.render_full_atlas();
             let mode_name = match state.active_color_mode {
                 0 => "Monochrome",
@@ -727,6 +737,33 @@ impl GuiController {
             } else {
                 state.cycle_view_line_font(line, false);
             }
+        }
+        self.sync_to_ui();
+    }
+
+    /// Change the horizontal view scroll offset (C# `hScrollBar.Value`).
+    pub fn view_scroll_x_changed(&self, x: i32) {
+        {
+            let mut state = self.state.borrow_mut();
+            state.set_view_scroll_x(x.max(0) as usize);
+        }
+        self.sync_to_ui();
+    }
+
+    /// Change the vertical view scroll offset (C# `vScrollBar.Value`).
+    pub fn view_scroll_y_changed(&self, y: i32) {
+        {
+            let mut state = self.state.borrow_mut();
+            state.set_view_scroll_y(y.max(0) as usize);
+        }
+        self.sync_to_ui();
+    }
+
+    /// Change the view byte width preference (0 = 32, 1 = 40, 2 = 48).
+    pub fn view_bytes_mode_changed(&self, mode: i32) {
+        {
+            let mut state = self.state.borrow_mut();
+            state.set_view_bytes_mode(mode.max(0) as usize);
         }
         self.sync_to_ui();
     }
