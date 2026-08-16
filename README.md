@@ -1,6 +1,6 @@
 # Atari FontMaker (Rust Port)
 
-![Atari FontMaker Screenshot](images/1.jpg) <!-- Update this path with a screenshot of your Rust app -->
+![Atari FontMaker Screenshot](images/1.png) <!-- Update this path with a screenshot of your Rust app -->
 
 ## What is it?
 This is a modern **Rust port** of the original [Atari FontMaker](https://github.com/matosimi/atari-fontmaker) created by matosimi and RetroCoder. 
@@ -17,6 +17,15 @@ Atari FontMaker is a powerful tool used for creating and editing Atari 8-bit/520
 
 ### Prerequisites
 To build this project, you will need the [Rust toolchain](https://rustup.rs/) installed on your system.
+
+On **Linux** the native file dialogs (Open / Save / Load View / Save View) use the XDG Desktop Portal with a `zenity` fallback. Make sure the required packages are installed (e.g. on Ubuntu, including WSL2 + WSLg):
+
+```bash
+sudo apt update
+sudo apt install -y xdg-desktop-portal xdg-desktop-portal-gtk zenity
+```
+
+No additional packages are required on Windows.
 
 ### Installation
 Clone the repository and run the project using Cargo:

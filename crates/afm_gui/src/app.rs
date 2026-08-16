@@ -770,20 +770,6 @@ impl AfmApp {
             });
         }
 
-        // Wire in-window file picker callbacks (Phase 21D-1)
-        {
-            let c = controller.clone();
-            ui.on_file_picker_navigate(move |d| c.file_picker_navigate(d));
-        }
-        {
-            let c = controller.clone();
-            ui.on_file_picker_select_file(move |f| c.file_picker_select(f));
-        }
-        {
-            let c = controller.clone();
-            ui.on_file_picker_cancel(move || c.file_picker_cancel());
-        }
-
         // Perform initial synchronization of state properties to UI
         controller.sync_to_ui();
 

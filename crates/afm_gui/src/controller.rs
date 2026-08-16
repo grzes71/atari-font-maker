@@ -11,13 +11,6 @@ use crate::MainWindow;
 use crate::io::{ClipboardProvider, FileDialogs, RfdFileDialogs, SystemClipboard};
 use crate::state::{ClipboardTransform, GuiState, PendingAction};
 
-/// Pending in-window file picker operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FilePickerAction {
-    OpenProject,
-    SaveProject,
-}
-
 /// Controller managing user interaction, domain event routing, and UI synchronization.
 pub struct GuiController {
     state: Rc<RefCell<GuiState>>,
@@ -43,9 +36,6 @@ pub struct GuiController {
     export_view_ry: RefCell<usize>,
     export_view_rw: RefCell<usize>,
     export_view_rh: RefCell<usize>,
-
-    // Phase 21D-1: In-window file picker action
-    file_picker_action: RefCell<Option<FilePickerAction>>,
 }
 
 impl GuiController {
@@ -86,7 +76,6 @@ impl GuiController {
             export_view_ry: RefCell::new(0),
             export_view_rw: RefCell::new(40),
             export_view_rh: RefCell::new(26),
-            file_picker_action: RefCell::new(None),
         }
     }
 
@@ -278,26 +267,6 @@ impl GuiController {
             ui.set_show_confirm_modal(state.show_confirm_dialog);
             ui.set_confirm_title(slint::SharedString::from(&state.confirm_title));
             ui.set_confirm_message(slint::SharedString::from(&state.confirm_message));
-
-            // Phase 21D-1: In-window file picker
-            ui.set_show_file_picker(state.show_file_picker);
-            ui.set_file_picker_save_mode(state.file_picker_save_mode);
-            ui.set_file_picker_dir(slint::SharedString::from(&state.file_picker_dir));
-            ui.set_file_picker_dirs(ModelRc::new(VecModel::from(
-                state
-                    .file_picker_dirs
-                    .iter()
-                    .map(|s| slint::SharedString::from(s.as_str()))
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_file_picker_files(ModelRc::new(VecModel::from(
-                state
-                    .file_picker_files
-                    .iter()
-                    .map(|s| slint::SharedString::from(s.as_str()))
-                    .collect::<Vec<_>>(),
-            )));
-            ui.set_file_picker_filename(slint::SharedString::from(&state.file_picker_filename));
         }
     }
 
@@ -1383,8 +1352,10 @@ impl GuiController {
     }
 
     pub fn open_project(&self) {
-        // In-window file picker: works without a native portal/GTK backend.
-        self.show_file_picker(FilePickerAction::OpenProject);
+        // Native file dialog (same backend as "Load 1" / "Save 1 as").
+        if let Some(path) = self.dialogs.open_project() {
+            self.open_project_from_path(&path);
+        }
     }
 
     pub fn open_project_from_path(&self, path: &Path) {
@@ -1438,8 +1409,10 @@ impl GuiController {
     }
 
     pub fn save_project_as(&self) {
-        // In-window file picker (save mode).
-        self.show_file_picker(FilePickerAction::SaveProject);
+        // Native file dialog (same backend as "Load 1" / "Save 1 as").
+        if let Some(path) = self.dialogs.save_project() {
+            self.save_project_to_path(&path);
+        }
     }
 
     /// Save the project to an explicit path (no dialog). Used by the in-window
@@ -1451,120 +1424,6 @@ impl GuiController {
                 state.status_message = format!("Failed to save project: {e}");
             }
         }
-        self.sync_to_ui();
-    }
-
-    // =========================================================================
-    // Phase 21D-1: In-window file picker
-    // =========================================================================
-
-    fn file_picker_extensions(action: FilePickerAction) -> &'static [&'static str] {
-        match action {
-            FilePickerAction::OpenProject => &["atrview", "vf2", "vfn", "dat"],
-            FilePickerAction::SaveProject => &["atrview"],
-        }
-    }
-
-    fn list_dir(dir: &Path, extensions: &[&str]) -> (Vec<String>, Vec<String>) {
-        let mut dirs = Vec::new();
-        let mut files = Vec::new();
-        if let Ok(rd) = std::fs::read_dir(dir) {
-            for entry in rd.flatten() {
-                let path = entry.path();
-                let name = entry.file_name().to_string_lossy().to_string();
-                if path.is_dir() {
-                    dirs.push(name);
-                } else if let Some(ext) = path.extension().and_then(|e| e.to_str())
-                    && extensions.contains(&ext.to_ascii_lowercase().as_str())
-                {
-                    files.push(name);
-                }
-            }
-        }
-        dirs.sort();
-        files.sort();
-        (dirs, files)
-    }
-
-    fn show_file_picker(&self, action: FilePickerAction) {
-        let extensions = Self::file_picker_extensions(action);
-        let save_mode = action == FilePickerAction::SaveProject;
-        let dir = self
-            .state
-            .borrow()
-            .project_path
-            .clone()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-            .unwrap_or_else(|| {
-                std::env::current_dir().unwrap_or_else(|_| Path::new("/").to_path_buf())
-            });
-
-        let (dirs, files) = Self::list_dir(&dir, extensions);
-        {
-            let mut state = self.state.borrow_mut();
-            state.file_picker_dir = dir.to_string_lossy().to_string();
-            state.file_picker_dirs = dirs;
-            state.file_picker_files = files;
-            state.file_picker_save_mode = save_mode;
-            state.file_picker_filename = "project.atrview".to_string();
-            state.show_file_picker = true;
-        }
-        *self.file_picker_action.borrow_mut() = Some(action);
-        self.sync_to_ui();
-    }
-
-    /// Navigate to a subdirectory (".." = parent) and refresh the entry list.
-    pub fn file_picker_navigate(&self, dir_name: slint::SharedString) {
-        let extensions = Self::file_picker_extensions(
-            self.file_picker_action
-                .borrow()
-                .unwrap_or(FilePickerAction::OpenProject),
-        );
-        let mut dir = std::path::PathBuf::from(self.state.borrow().file_picker_dir.clone());
-        if dir_name.as_str() == ".." {
-            dir.pop();
-        } else {
-            dir.push(dir_name.as_str());
-        }
-        let (dirs, files) = Self::list_dir(&dir, extensions);
-        {
-            let mut state = self.state.borrow_mut();
-            state.file_picker_dir = dir.to_string_lossy().to_string();
-            state.file_picker_dirs = dirs;
-            state.file_picker_files = files;
-        }
-        self.sync_to_ui();
-    }
-
-    /// User chose a file (or confirmed the save filename).
-    pub fn file_picker_select(&self, file_name: slint::SharedString) {
-        let action = *self.file_picker_action.borrow();
-        let mut path = std::path::PathBuf::from(self.state.borrow().file_picker_dir.clone());
-        if self.state.borrow().file_picker_save_mode {
-            let name = self.state.borrow().file_picker_filename.clone();
-            path.push(if name.trim().is_empty() {
-                "project.atrview".to_string()
-            } else {
-                name.trim().to_string()
-            });
-        } else {
-            path.push(file_name.as_str());
-        }
-
-        self.file_picker_action.replace(None);
-        self.state.borrow_mut().show_file_picker = false;
-
-        match action {
-            Some(FilePickerAction::OpenProject) => self.open_project_from_path(&path),
-            Some(FilePickerAction::SaveProject) => self.save_project_to_path(&path),
-            None => {}
-        }
-        self.sync_to_ui();
-    }
-
-    pub fn file_picker_cancel(&self) {
-        self.file_picker_action.replace(None);
-        self.state.borrow_mut().show_file_picker = false;
         self.sync_to_ui();
     }
 
@@ -1914,13 +1773,9 @@ impl GuiController {
     }
 
     pub fn escape_pressed(&self) {
-        let picker_was_open = self.state.borrow().show_file_picker;
         {
             let mut state = self.state.borrow_mut();
             state.escape_pressed();
-        }
-        if picker_was_open {
-            *self.file_picker_action.borrow_mut() = None;
         }
         self.sync_to_ui();
     }
@@ -2907,32 +2762,31 @@ mod tests {
     }
 
     #[test]
-    fn test_save_project_via_picker_writes_file_and_updates_path() {
+    fn test_save_project_without_path_uses_native_dialog() {
         let temp_dir = std::env::temp_dir();
-        let dialogs = Rc::new(crate::io::TestFileDialogs::new(vec![]));
+        let saved = temp_dir.join(format!("afm_p21a_save_{}.atrview", std::process::id()));
+        let dialogs = Rc::new(crate::io::TestFileDialogs::new(vec![Some(saved.clone())]));
         let (state, controller, _, _) = io_controller(dialogs);
 
-        // No known path -> Save shows the in-window file picker (save mode).
+        // No known path -> Save opens the native save dialog and writes the file.
         controller.save_project();
-        assert!(state.borrow().show_file_picker);
-        assert!(state.borrow().file_picker_save_mode);
-
-        // Direct the picker to the temp directory with a known file name.
-        state.borrow_mut().file_picker_dir = temp_dir.to_string_lossy().to_string();
-        state.borrow_mut().file_picker_filename = "afm_d1_save_test.atrview".to_string();
-        controller.file_picker_select("".into());
-
-        let saved = temp_dir.join("afm_d1_save_test.atrview");
-        assert!(saved.exists(), "picker save must write the project file");
+        assert!(
+            saved.exists(),
+            "native dialog save must write the project file"
+        );
         assert_eq!(
             state.borrow().project_path.as_deref(),
             Some(saved.as_path())
         );
         assert!(!state.borrow().is_dirty);
 
-        // Known path -> Save writes directly without re-opening the picker.
+        // Known path -> Save writes directly without opening the dialog again.
         controller.save_project();
-        assert!(!state.borrow().show_file_picker);
+        assert!(saved.exists());
+        assert_eq!(
+            state.borrow().project_path.as_deref(),
+            Some(saved.as_path())
+        );
 
         let _ = std::fs::remove_file(&saved);
     }

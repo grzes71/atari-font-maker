@@ -19,7 +19,6 @@ import { ViewActionsModal } from "components/view_actions_modal.slint";
 import { ImportViewModal } from "components/import_view_modal.slint";
 import { EnterTextModal } from "components/enter_text_modal.slint";
 import { ConfirmDialog } from "components/confirm_dialog.slint";
-import { FilePickerDialog } from "components/file_picker_dialog.slint";
 
 export component MainWindow inherits Window {
     in-out property <string> window_title: "Atari FontMaker [Rust + Slint]";
@@ -169,14 +168,6 @@ export component MainWindow inherits Window {
     in property <bool> show_confirm_modal: false;
     in property <string> confirm_title: "";
     in property <string> confirm_message: "";
-
-    // In-window file picker (Phase 21D-1)
-    in property <bool> show_file_picker: false;
-    in property <bool> file_picker_save_mode: false;
-    in property <string> file_picker_dir: "";
-    in property <[string]> file_picker_dirs;
-    in property <[string]> file_picker_files;
-    in property <string> file_picker_filename: "project.atrview";
 
     // Callbacks to Rust Controller
     callback select_character(int);
@@ -379,11 +370,6 @@ export component MainWindow inherits Window {
     // Destructive-operation confirmation callbacks (Phase 21C-1)
     callback confirm_clicked();
     callback cancel_clicked();
-
-    // In-window file picker callbacks (Phase 21D-1)
-    callback file_picker_navigate(string);
-    callback file_picker_select_file(string);
-    callback file_picker_cancel();
 
     forward-focus: key-handler;
 
@@ -1387,19 +1373,6 @@ export component MainWindow inherits Window {
 
             confirmed => { root.confirm_clicked(); }
             cancelled => { root.cancel_clicked(); }
-        }
-
-        FilePickerDialog {
-            is_open: root.show_file_picker;
-            save_mode: root.file_picker_save_mode;
-            current_dir: root.file_picker_dir;
-            dirs: root.file_picker_dirs;
-            files: root.file_picker_files;
-            file_name: root.file_picker_filename;
-
-            navigate(d) => { root.file_picker_navigate(d); }
-            select_file(f) => { root.file_picker_select_file(f); }
-            cancel => { root.file_picker_cancel(); }
         }
     }
 }

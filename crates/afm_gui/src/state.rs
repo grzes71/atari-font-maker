@@ -165,14 +165,6 @@ pub struct GuiState {
     pub confirm_title: String,
     pub confirm_message: String,
     pub pending_action: Option<PendingAction>,
-
-    // Phase 21D-1: In-window file picker (works without a native portal/GTK)
-    pub show_file_picker: bool,
-    pub file_picker_save_mode: bool,
-    pub file_picker_dir: String,
-    pub file_picker_dirs: Vec<String>,
-    pub file_picker_files: Vec<String>,
-    pub file_picker_filename: String,
 }
 
 impl Default for GuiState {
@@ -279,12 +271,6 @@ impl GuiState {
             confirm_title: String::new(),
             confirm_message: String::new(),
             pending_action: None,
-            show_file_picker: false,
-            file_picker_save_mode: false,
-            file_picker_dir: String::new(),
-            file_picker_dirs: Vec::new(),
-            file_picker_files: Vec::new(),
-            file_picker_filename: "project.atrview".to_string(),
         }
     }
 
@@ -2766,8 +2752,6 @@ impl GuiState {
     pub fn escape_pressed(&mut self) {
         if self.show_confirm_dialog {
             self.cancel_confirm();
-        } else if self.show_file_picker {
-            self.show_file_picker = false;
         } else if self.show_color_selector {
             self.show_color_selector = false;
         } else if self.show_export_font_dialog {

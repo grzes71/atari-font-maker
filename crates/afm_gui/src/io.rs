@@ -43,92 +43,138 @@ pub trait FileDialogs {
 /// Real native dialog implementation backed by `rfd`.
 pub struct RfdFileDialogs;
 
+/// TEMPORARY diagnostic logging around the blocking `rfd` calls.
+///
+/// `rfd`'s `Option<PathBuf>` return value cannot distinguish "user cancelled"
+/// from "backend failed", so we log before and after every call. When the
+/// `xdg-portal` backend's D-Bus call fails and its `zenity` fallback also
+/// fails, `rfd` emits `log::error!` lines which (with a logger installed) show
+/// the exact reason — see `RfdFileDialogs::pick_file_logged` etc.
+fn pick_file_logged(what: &str, dialog: rfd::FileDialog) -> Option<PathBuf> {
+    log::info!("[rfd] {what}: calling pick_file()");
+    let result = dialog.pick_file();
+    match &result {
+        Some(path) => log::info!("[rfd] {what}: pick_file() selected {path:?}"),
+        None => log::warn!("[rfd] {what}: pick_file() returned None (cancelled or backend error)"),
+    }
+    result
+}
+
+fn save_file_logged(what: &str, dialog: rfd::FileDialog) -> Option<PathBuf> {
+    log::info!("[rfd] {what}: calling save_file()");
+    let result = dialog.save_file();
+    match &result {
+        Some(path) => log::info!("[rfd] {what}: save_file() selected {path:?}"),
+        None => log::warn!("[rfd] {what}: save_file() returned None (cancelled or backend error)"),
+    }
+    result
+}
+
 impl FileDialogs for RfdFileDialogs {
     fn open_project(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter(
-                "Atari FontMaker View (*.atrview, *.vf2, *.vfn)",
-                &["atrview", "vf2", "vfn"],
-            )
-            .add_filter("Raw data (*.dat)", &["dat"])
-            .pick_file()
+        pick_file_logged(
+            "open_project",
+            rfd::FileDialog::new()
+                .add_filter(
+                    "Atari FontMaker View (*.atrview, *.vf2, *.vfn)",
+                    &["atrview", "vf2", "vfn"],
+                )
+                .add_filter("Raw data (*.dat)", &["dat"]),
+        )
     }
 
     fn save_project(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter("Atari FontMaker View (*.atrview)", &["atrview"])
-            .set_file_name("project.atrview")
-            .save_file()
+        save_file_logged(
+            "save_project",
+            rfd::FileDialog::new()
+                .add_filter("Atari FontMaker View (*.atrview)", &["atrview"])
+                .set_file_name("project.atrview"),
+        )
     }
 
     fn open_font(&self, font_nr: usize) -> Option<PathBuf> {
         if font_nr == 1 || font_nr == 3 {
-            rfd::FileDialog::new()
-                .add_filter(
+            pick_file_logged(
+                "open_font",
+                rfd::FileDialog::new().add_filter(
                     format!("Atari font {font_nr} or Dual font (*.fnt, *.fn2)"),
                     &["fnt", "fn2"],
-                )
-                .pick_file()
+                ),
+            )
         } else {
-            rfd::FileDialog::new()
-                .add_filter(format!("Atari font {font_nr} (*.fnt)"), &["fnt"])
-                .pick_file()
+            pick_file_logged(
+                "open_font",
+                rfd::FileDialog::new()
+                    .add_filter(format!("Atari font {font_nr} (*.fnt)"), &["fnt"]),
+            )
         }
     }
 
     fn save_font(&self, font_nr: usize) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter(format!("Atari font {font_nr} (*.fnt)"), &["fnt"])
-            .set_file_name(format!("font{font_nr}.fnt"))
-            .save_file()
+        save_file_logged(
+            "save_font",
+            rfd::FileDialog::new()
+                .add_filter(format!("Atari font {font_nr} (*.fnt)"), &["fnt"])
+                .set_file_name(format!("font{font_nr}.fnt")),
+        )
     }
 
     fn open_palette(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter("Atari palette (*.pal)", &["pal"])
-            .pick_file()
+        pick_file_logged(
+            "open_palette",
+            rfd::FileDialog::new().add_filter("Atari palette (*.pal)", &["pal"]),
+        )
     }
 
     fn save_palette(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter("Atari palette (*.pal)", &["pal"])
-            .set_file_name("palette.pal")
-            .save_file()
+        save_file_logged(
+            "save_palette",
+            rfd::FileDialog::new()
+                .add_filter("Atari palette (*.pal)", &["pal"])
+                .set_file_name("palette.pal"),
+        )
     }
 
     fn open_tile(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter("Atari tile (*.atrtile)", &["atrtile"])
-            .pick_file()
+        pick_file_logged(
+            "open_tile",
+            rfd::FileDialog::new().add_filter("Atari tile (*.atrtile)", &["atrtile"]),
+        )
     }
 
     fn save_tile(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter("Atari tile (*.atrtile)", &["atrtile"])
-            .set_file_name("tile.atrtile")
-            .save_file()
+        save_file_logged(
+            "save_tile",
+            rfd::FileDialog::new()
+                .add_filter("Atari tile (*.atrtile)", &["atrtile"])
+                .set_file_name("tile.atrtile"),
+        )
     }
 
     fn open_tileset(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter(
+        pick_file_logged(
+            "open_tileset",
+            rfd::FileDialog::new().add_filter(
                 "Atari tile set (*.atrset, *.atrtileset)",
                 &["atrset", "atrtileset"],
-            )
-            .pick_file()
+            ),
+        )
     }
 
     fn save_tileset(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter("Atari tile set (*.atrset)", &["atrset"])
-            .set_file_name("tileset.atrset")
-            .save_file()
+        save_file_logged(
+            "save_tileset",
+            rfd::FileDialog::new()
+                .add_filter("Atari tile set (*.atrset)", &["atrset"])
+                .set_file_name("tileset.atrset"),
+        )
     }
 
     fn import_view(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter("Any binary data", &["*"])
-            .pick_file()
+        pick_file_logged(
+            "import_view",
+            rfd::FileDialog::new().add_filter("Any binary data", &["*"]),
+        )
     }
 
     fn export_save(
@@ -137,10 +183,12 @@ impl FileDialogs for RfdFileDialogs {
         filter_name: &str,
         extensions: &[&str],
     ) -> Option<PathBuf> {
-        rfd::FileDialog::new()
-            .add_filter(filter_name, extensions)
-            .set_file_name(default_name)
-            .save_file()
+        save_file_logged(
+            "export_save",
+            rfd::FileDialog::new()
+                .add_filter(filter_name, extensions)
+                .set_file_name(default_name),
+        )
     }
 }
 
