@@ -1,0 +1,237 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: >-
+          Compute the version and build the archives, but do NOT create a git
+          tag or GitHub Release. Defaults to true for safety.
+        type: boolean
+        default: true
+
+# Serialize release runs so two PRs merged at the same time do not compute the
+# same version. Each run sees the tag created by the previous one.
+concurrency:
+  group: afm-release
+  cancel-in-progress: false
+
+# Minimal permissions: only repository contents (tags + releases) are written.
+permissions:
+  contents: write
+
+jobs:
+  determine-version:
+    name: Determine version
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+      || github.event_name == 'workflow_dispatch'
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      sha: ${{ steps.compute.outputs.sha }}
+      dry_run: ${{ steps.compute.outputs.dry_run }}
+    steps:
+      - name: Checkout repository (full history + tags)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Compute SemVer version and release notes
+        id: compute
+        env:
+          TARGET_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+        run: |
+          DRY_RUN_ARG=""
+          if [ "$DRY_RUN" = "true" ]; then
+            DRY_RUN_ARG="--dry-run"
+          fi
+          VERSION="$(python3 scripts/determine_version.py \
+            --sha "$TARGET_SHA" \
+            --notes-out release_notes.md \
+            $DRY_RUN_ARG)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo "dry_run=$DRY_RUN" >> "$GITHUB_OUTPUT"
+          echo "--- Computed version: v$VERSION ---"
+          cat release_notes.md
+
+      - name: Upload release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-meta
+          path: release_notes.md
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux (x86_64-unknown-linux-gnu)
+    runs-on: ubuntu-latest
+    needs: determine-version
+    env:
+      VERSION: ${{ needs.determine-version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.determine-version.outputs.sha }}
+
+      - name: Install Linux GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libfontconfig1-dev \
+            libxkbcommon-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcb1-dev \
+            libxcursor-dev \
+            libgl1-mesa-dev \
+            libegl1-mesa-dev
+
+      - name: Add Linux Rust target
+        run: rustup target add x86_64-unknown-linux-gnu
+
+      - name: Cache Cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-linux-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-linux-
+
+      - name: Quality gate — format
+        run: cargo fmt --all -- --check
+
+      - name: Quality gate — check
+        run: cargo check --workspace
+
+      - name: Quality gate — clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Quality gate — tests
+        run: cargo test --workspace
+
+      - name: Build Linux release binary
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Package Linux archive
+        run: |
+          DIST="dist/atari-fontmaker-v$VERSION-linux-x86_64"
+          mkdir -p "$DIST"
+          cp "target/x86_64-unknown-linux-gnu/release/afm_gui" "$DIST/atari-fontmaker"
+          cp FontMaker.json "$DIST/"
+          cp README.md "$DIST/README.txt"
+          tar -czf "atari-fontmaker-v$VERSION-linux-x86_64.tar.gz" -C dist "atari-fontmaker-v$VERSION-linux-x86_64"
+          echo "--- Binary type ---"
+          file "target/x86_64-unknown-linux-gnu/release/afm_gui"
+          echo "--- Archive contents ---"
+          tar -tzf "atari-fontmaker-v$VERSION-linux-x86_64.tar.gz"
+
+      - name: Upload Linux archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-archive
+          path: atari-fontmaker-v${{ needs.determine-version.outputs.version }}-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows (x86_64-pc-windows-gnu)
+    runs-on: ubuntu-latest
+    needs: determine-version
+    env:
+      VERSION: ${{ needs.determine-version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.determine-version.outputs.sha }}
+
+      - name: Install MinGW-w64 cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-mingw-w64-x86-64 \
+            g++-mingw-w64-x86-64 \
+            binutils-mingw-w64-x86-64 \
+            zip
+          command -v x86_64-w64-mingw32-gcc
+          command -v x86_64-w64-mingw32-dlltool
+          command -v x86_64-w64-mingw32-ar
+
+      - name: Add Windows Rust target
+        run: rustup target add x86_64-pc-windows-gnu
+
+      - name: Cache Cargo artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-windows-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-windows-
+
+      - name: Build Windows release binary
+        run: cargo build --release --target x86_64-pc-windows-gnu
+
+      - name: Package Windows archive
+        run: |
+          DIST="dist/atari-fontmaker-v$VERSION-windows-x86_64"
+          mkdir -p "$DIST"
+          cp "target/x86_64-pc-windows-gnu/release/afm_gui.exe" "$DIST/atari-fontmaker.exe"
+          cp FontMaker.json "$DIST/"
+          cp README.md "$DIST/README.txt"
+          (cd dist && zip -qr "../atari-fontmaker-v$VERSION-windows-x86_64.zip" "atari-fontmaker-v$VERSION-windows-x86_64")
+          echo "--- Binary type ---"
+          file "target/x86_64-pc-windows-gnu/release/afm_gui.exe"
+          echo "--- Archive contents ---"
+          unzip -l "atari-fontmaker-v$VERSION-windows-x86_64.zip"
+
+      - name: Upload Windows archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-archive
+          path: atari-fontmaker-v${{ needs.determine-version.outputs.version }}-windows-x86_64.zip
+          if-no-files-found: error
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [determine-version, build-linux, build-windows]
+    if: needs.determine-version.outputs.dry_run == 'false'
+    env:
+      VERSION: ${{ needs.determine-version.outputs.version }}
+      TARGET_SHA: ${{ needs.determine-version.outputs.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create tag and GitHub Release
+        run: |
+          TAG="v$VERSION"
+          # Idempotency: never create a duplicate tag/release on re-runs.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — nothing to do."
+            exit 0
+          fi
+          echo "--- Artifacts ---"
+          find artifacts -type f -print
+          gh release create "$TAG" \
+            artifacts/linux-archive/*.tar.gz \
+            artifacts/windows-archive/*.zip \
+            --target "$TARGET_SHA" \
+            --title "$TAG" \
+            --notes-file artifacts/release-meta/release_notes.md
+          echo "Release $TAG created."

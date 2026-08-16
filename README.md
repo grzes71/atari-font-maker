@@ -94,6 +94,15 @@ Atari FontMaker uses a JSON format for clipboard data, allowing you to easily co
 
 ---
 
+## Releases
+
+Releases are built automatically by GitHub Actions. When a pull request is
+merged, the workflow computes the next SemVer version from Conventional Commits,
+creates a git tag and a GitHub Release, and attaches Linux and Windows archives.
+See [`docs/release-workflow.md`](docs/release-workflow.md) for details.
+
+---
+
 ## Credits & Acknowledgements
 
 * **Original Authors:** [matosimi](https://github.com/matosimi) and RetroCoder.
