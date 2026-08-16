@@ -1,6 +1,6 @@
 # Atari FontMaker (Rust Port)
 
-![Atari FontMaker Screenshot](images/1.JPG) <!-- Update this path with a screenshot of your Rust app -->
+![Atari FontMaker Screenshot](images/1.jpg) <!-- Update this path with a screenshot of your Rust app -->
 
 ## What is it?
 This is a modern **Rust port** of the original [Atari FontMaker](https://github.com/matosimi/atari-fontmaker) created by matosimi and RetroCoder. 
