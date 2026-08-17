@@ -39,6 +39,79 @@ cargo run --release
 
 ---
 
+## Web (WASM) — run in the browser
+
+The same UI and model can be built to WebAssembly and run entirely in a
+browser. The web build reuses `afm_gui` (the Slint UI + `GuiController`/
+`GuiState`) and `afm_core` through the thin `afm_web` entry point.
+
+Supported in the browser today:
+
+* Font 1–4 with the default Atari glyphs, the 8×8 Character Editor and the
+  40×26 View editor,
+* Open (`.atrview`, `.fnt`, `.pal`, tiles, …) through the browser file picker,
+* Save / Save As through real browser downloads,
+* undo/redo, color selection and the full existing Slint UI.
+
+Native file dialogs (`rfd`) and `std::fs` are **not** used on wasm — the
+browser file picker and Blob downloads replace them. Browser clipboard
+**paste** (`navigator.clipboard.readText`) is not implemented yet.
+
+### Prerequisites
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.127   # keep in sync with Cargo.lock
+```
+
+### Build
+
+```bash
+cargo build --release -p afm_web --target wasm32-unknown-unknown
+mkdir -p web/dist
+wasm-bindgen --target web --out-dir web/dist --out-name afm_web \
+  target/wasm32-unknown-unknown/release/afm_web.wasm
+cp web/index.html web/dist/index.html
+```
+
+The deployable site is the `web/dist/` directory (`index.html`, `afm_web.js`,
+`afm_web_bg.wasm`).
+
+### Serve locally
+
+WASM must be served over HTTP(S) with the correct MIME types
+(`application/wasm`). For example:
+
+```bash
+python3 -m http.server 8080 --directory web/dist
+```
+
+then open <http://localhost:8080/>.
+
+### Browser smoke test
+
+A dependency-free test drives a real headless Chrome over the Chrome DevTools
+Protocol and verifies the UI (font banks, default glyphs, Character Editor,
+40×26 view) plus an Open → Save → Open round-trip, a Cancel, a resize check and
+a clean console:
+
+```bash
+node web/smoke_test.mjs \
+  web/dist \
+  tests/fixtures/projects/default.atrview \
+  /usr/bin/google-chrome-stable \
+  smoke-screenshot.png
+```
+
+On WSL (Windows Chrome + Node), the convenience wrapper builds the bundle and
+stages it onto the C: drive automatically:
+
+```bash
+bash scripts/run_wasm_smoke_test.sh
+```
+
+---
+
 ## Core Features
 
 This Rust port aims to provide feature parity with the 1.6.x versions of the original FontMaker, including:
@@ -107,7 +180,10 @@ Atari FontMaker uses a JSON format for clipboard data, allowing you to easily co
 
 Releases are built automatically by GitHub Actions. When a pull request is
 merged, the workflow computes the next SemVer version from Conventional Commits,
-creates a git tag and a GitHub Release, and attaches Linux and Windows archives.
+creates a git tag and a GitHub Release, and attaches Linux, Windows and Web
+(WASM) archives. The Web archive contains a ready-to-host `index.html`,
+`afm_web.js` and `afm_web_bg.wasm`, and the release workflow runs the browser
+smoke test before publishing.
 See [`docs/release-workflow.md`](docs/release-workflow.md) for details.
 
 ---
