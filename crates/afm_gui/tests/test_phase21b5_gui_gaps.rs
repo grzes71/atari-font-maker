@@ -1,5 +1,8 @@
 //! Phase 21B-5 remaining GUI gaps — page rename/reorder + restore colors.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 

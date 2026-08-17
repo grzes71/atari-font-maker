@@ -1,5 +1,8 @@
 //! Phase 21B-1 MegaCopy regression tests — view selection/copy/paste/transform.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 

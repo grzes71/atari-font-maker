@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atari Font Maker (WASM)</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e1e; }
+    #canvas { width: 100%; height: 100%; display: block; }
+    #status { position: fixed; bottom: 4px; left: 8px; color: #9a9a9a;
+              font: 12px monospace; z-index: 10; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="status">initializing…</div>
+  <script type="module">
+    import init, * as afm from './afm_web.js';
+
+    const status = document.getElementById('status');
+
+    (async () => {
+      try {
+        // init() also runs the #[wasm_bindgen(start)] entry point, which sets
+        // up Slint's spawn event loop, creates the app and shows the window.
+        await init();
+
+        // Expose the smoke-test harness surface for the CDP/Playwright driver.
+        window.__afm = {
+          open: afm.harness_open,
+          snapshot: afm.harness_snapshot,
+          save: afm.harness_save,
+          domainState: afm.harness_domain_state,
+          newProject: afm.harness_new_project,
+          selectCharacter: afm.harness_select_character,
+          selectDrawColor: afm.harness_select_draw_color,
+          pixelClick: afm.harness_pixel_click,
+          placeChar: afm.harness_place_char,
+          undo: afm.harness_undo,
+          redo: afm.harness_redo,
+        };
+
+        status.textContent = 'ready';
+      } catch (err) {
+        status.textContent = 'failed: ' + err;
+        console.error('afm_web init failed', err);
+      }
+    })();
+  </script>
+</body>
+</html>

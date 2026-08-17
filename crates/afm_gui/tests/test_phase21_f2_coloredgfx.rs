@@ -4,6 +4,9 @@
 //! is persisted into the `.atrview` `ColoredGfx` field on save and restored on
 //! open, matching C# `WhatColorModeToSave` / `SetupColorMode`.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 

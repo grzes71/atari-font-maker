@@ -1,14 +1,17 @@
 //! Application controller translating UI events to domain operations and updating GUI properties.
 
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use afm_core::exporters::{DataType, FontSelection, FormatType, ViewExportRegion};
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use crate::MainWindow;
-use crate::io::{ClipboardProvider, FileDialogs, RfdFileDialogs, SystemClipboard};
+use crate::io::{
+    ClipboardProvider, FileDialogs, FileService, create_clipboard, create_file_dialogs,
+    create_file_service,
+};
 use crate::state::{ClipboardTransform, GuiState, PendingAction};
 
 /// Controller managing user interaction, domain event routing, and UI synchronization.
@@ -20,8 +23,9 @@ pub struct GuiController {
     last_drag_view_cell: RefCell<Option<(usize, usize)>>,
     held_view_mouse_button: RefCell<Option<usize>>,
 
-    // File dialogs and clipboard (swappable for tests)
+    // File dialogs, file storage and clipboard (swappable for tests)
     dialogs: Rc<dyn FileDialogs>,
+    file_service: Rc<dyn FileService>,
     clipboard: Rc<RefCell<dyn ClipboardProvider>>,
 
     // Exporter Settings
@@ -44,8 +48,8 @@ impl GuiController {
         Self::new_with_io(
             state,
             window_weak,
-            Rc::new(RfdFileDialogs),
-            Rc::new(RefCell::new(SystemClipboard::new())),
+            Rc::new(create_file_dialogs()),
+            Rc::new(RefCell::new(create_clipboard())),
         )
     }
 
@@ -64,6 +68,7 @@ impl GuiController {
             last_drag_view_cell: RefCell::new(None),
             held_view_mouse_button: RefCell::new(None),
             dialogs,
+            file_service: Rc::new(create_file_service()),
             clipboard,
             export_font_format: RefCell::new(0),
             export_font_data_type: RefCell::new(0),
@@ -1061,7 +1066,7 @@ impl GuiController {
                 .dialogs
                 .export_save(&default_name, filter_name, extensions)
             {
-                match std::fs::write(&path, &bytes) {
+                match self.file_service.write_bytes(&path, &bytes) {
                     Ok(()) => {
                         self.state.borrow_mut().status_message =
                             format!("Exported font to {}", path.display());
@@ -1088,7 +1093,7 @@ impl GuiController {
                 .dialogs
                 .export_save(&default_name, filter_name, extensions)
             {
-                match std::fs::write(&path, &bytes) {
+                match self.file_service.write_bytes(&path, &bytes) {
                     Ok(()) => {
                         self.state.borrow_mut().status_message =
                             format!("Exported font to {}", path.display());
@@ -1110,7 +1115,7 @@ impl GuiController {
             .dialogs
             .export_save(&default_name, filter_name, extensions)
         {
-            match std::fs::write(&path, text.as_bytes()) {
+            match self.file_service.write_bytes(&path, text.as_bytes()) {
                 Ok(()) => {
                     self.state.borrow_mut().status_message =
                         format!("Exported font to {}", path.display());
@@ -1289,7 +1294,7 @@ impl GuiController {
                 .dialogs
                 .export_save("View.dat", "Binary (*.dat)", &["dat"])
             {
-                match std::fs::write(&path, &bytes) {
+                match self.file_service.write_bytes(&path, &bytes) {
                     Ok(()) => {
                         self.state.borrow_mut().status_message =
                             format!("Exported view to {}", path.display());
@@ -1310,7 +1315,7 @@ impl GuiController {
             .dialogs
             .export_save("view.txt", "Text (*.txt)", &["txt"])
         {
-            match std::fs::write(&path, text.as_bytes()) {
+            match self.file_service.write_bytes(&path, text.as_bytes()) {
                 Ok(()) => {
                     self.state.borrow_mut().status_message =
                         format!("Exported view to {}", path.display());
@@ -1371,7 +1376,7 @@ impl GuiController {
                 Some("vfn") => state.open_legacy_view_file(path, false),
                 Some("dat") => {
                     // Raw screen data (C# `ActionLoadView` `.dat` branch).
-                    match std::fs::read(path) {
+                    match self.file_service.read_bytes(path) {
                         Ok(data) => {
                             state.load_raw_view_bytes(&data);
                             Ok(())
@@ -1383,6 +1388,45 @@ impl GuiController {
                     Ok(()) => {
                         // C# `LoadViewFile` asks whether to load embedded fonts;
                         // on "No" the current fonts are kept.
+                        state.request_confirm(
+                            PendingAction::LoadFonts,
+                            "Load embedded fonts",
+                            "Would you like to load fonts embedded in this view file?",
+                        );
+                        Ok(())
+                    }
+                    Err(e) => Err(e.to_string()),
+                },
+            };
+            if let Err(e) = result {
+                state.status_message = format!("Failed to open project: {e}");
+            }
+        }
+        self.sync_to_ui();
+    }
+
+    /// Open a project / legacy-view / raw-view file from in-memory bytes,
+    /// mirroring `open_project_from_path` but without the filesystem (used by
+    /// the browser file picker on WASM and by tests).
+    pub fn open_project_from_bytes(&self, name: &str, bytes: Vec<u8>) {
+        let ext = Path::new(name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase());
+
+        {
+            let mut state = self.state.borrow_mut();
+            let result: Result<(), String> = match ext.as_deref() {
+                Some("vf2") => state.open_legacy_view_bytes(&bytes, true),
+                Some("vfn") => state.open_legacy_view_bytes(&bytes, false),
+                Some("dat") => {
+                    state.load_raw_view_bytes(&bytes);
+                    Ok(())
+                }
+                _ => match state.open_project_bytes(&bytes, false) {
+                    Ok(()) => {
+                        state.project_path = Some(PathBuf::from(name));
+                        state.status_message = format!("Opened project: {name}");
                         state.request_confirm(
                             PendingAction::LoadFonts,
                             "Load embedded fonts",
@@ -1427,6 +1471,68 @@ impl GuiController {
         self.sync_to_ui();
     }
 
+    /// Return the exact `.atrview` JSON bytes that [`Self::save_project_as`]
+    /// would write, as a UTF-8 string. Used by the WASM smoke-test harness to
+    /// assert lossless Open→Save→Open round-trips.
+    pub fn project_snapshot_json(&self) -> String {
+        let mut state = self.state.borrow_mut();
+        match state.save_project_bytes() {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(e) => format!("{{\"error\":\"{e}\"}}"),
+        }
+    }
+
+    /// Return a JSON summary of the live domain state for the WASM smoke-test
+    /// harness: font banks (count + non-zero glyphs + hash), selected character,
+    /// the 40×26 view (non-zero cells + hash), color mode, draw color, dirty
+    /// flag and status message.
+    ///
+    /// String-based so `afm_web` needs no JSON dependency; the hashes let the
+    /// browser test assert real (visible) mutations without DOM-level access to
+    /// Slint's canvas-rendered widgets.
+    pub fn domain_state_json(&self) -> String {
+        let state = self.state.borrow();
+        let font_bytes = state.fonts.as_bytes();
+        let glyph_nonzero = font_bytes
+            .chunks(8)
+            .filter(|g| g.iter().any(|&b| b != 0))
+            .count();
+        let view = &state.project.view_bytes;
+        let view_nonzero = view.iter().filter(|&&b| b != 0).count();
+        let status = state
+            .status_message
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"");
+
+        format!(
+            concat!(
+                "{{\"font_count\":4,",
+                "\"glyph_nonzero\":{},",
+                "\"font_hash\":\"{}\",",
+                "\"selected_char\":{},",
+                "\"bank_pair\":{},",
+                "\"view_width\":40,",
+                "\"view_height\":26,",
+                "\"view_nonzero\":{},",
+                "\"view_hash\":\"{}\",",
+                "\"status\":\"{}\",",
+                "\"color_mode\":{},",
+                "\"draw_color\":{},",
+                "\"dirty\":{}}}"
+            ),
+            glyph_nonzero,
+            fnv1a_hex(font_bytes),
+            state.selected_char_index,
+            state.selected_bank_pair,
+            view_nonzero,
+            fnv1a_hex(view),
+            status,
+            state.active_color_mode,
+            state.selected_draw_color,
+            state.is_dirty,
+        )
+    }
+
     // =========================================================================
     // Font / Palette / Tile / TileSet / Import View file I/O (Phase 21A)
     // =========================================================================
@@ -1455,6 +1561,26 @@ impl GuiController {
             }
             self.sync_to_ui();
         }
+    }
+
+    /// Open a font file from in-memory bytes (browser file picker / tests).
+    pub fn open_font_from_bytes(&self, font_nr: usize, name: &str, bytes: Vec<u8>) {
+        let font_nr = font_nr.clamp(1, 4);
+        let is_fn2 = Path::new(name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("fn2"))
+            .unwrap_or(false);
+        let bank_idx = font_nr - 1;
+        {
+            let mut state = self.state.borrow_mut();
+            state.commit_char_if_edited();
+            match state.open_font_bytes(&bytes, bank_idx, is_fn2) {
+                Ok(()) => state.status_message = format!("Loaded font {font_nr} from {name}"),
+                Err(e) => state.status_message = format!("Failed to load font: {e}"),
+            }
+        }
+        self.sync_to_ui();
     }
 
     /// Save font bank `font_nr` (1..=4) as `.fnt`.
@@ -1500,13 +1626,11 @@ impl GuiController {
         if let Some(path) = self.dialogs.open_palette() {
             {
                 let mut state = self.state.borrow_mut();
-                match std::fs::read(&path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|bytes| {
-                        state
-                            .load_palette_from_bytes(&bytes)
-                            .map_err(|e| e.to_string())
-                    }) {
+                match self.file_service.read_bytes(&path).and_then(|bytes| {
+                    state
+                        .load_palette_from_bytes(&bytes)
+                        .map_err(|e| e.to_string())
+                }) {
                     Ok(()) => {
                         state.status_message = format!("Loaded palette from {}", path.display())
                     }
@@ -1517,11 +1641,22 @@ impl GuiController {
         }
     }
 
+    /// Load a palette from in-memory bytes (browser file picker / tests).
+    pub fn open_palette_from_bytes(&self, bytes: Vec<u8>) {
+        {
+            let mut state = self.state.borrow_mut();
+            if let Err(e) = state.load_palette_from_bytes(&bytes) {
+                state.status_message = format!("Failed to load palette: {e}");
+            }
+        }
+        self.sync_to_ui();
+    }
+
     /// Save the current 768-byte palette as `.pal`.
     pub fn save_palette(&self) {
         if let Some(path) = self.dialogs.save_palette() {
             let bytes = self.state.borrow().save_palette_to_bytes();
-            match std::fs::write(&path, bytes) {
+            match self.file_service.write_bytes(&path, &bytes) {
                 Ok(()) => {
                     self.state.borrow_mut().status_message =
                         format!("Saved palette to {}", path.display())
@@ -1573,7 +1708,7 @@ impl GuiController {
         copy_h: usize,
     ) {
         if let Some(path) = self.dialogs.import_view() {
-            match std::fs::read(&path) {
+            match self.file_service.read_bytes(&path) {
                 Ok(bytes) => {
                     if bytes.is_empty() {
                         self.state.borrow_mut().status_message =
@@ -1597,6 +1732,34 @@ impl GuiController {
             }
             self.sync_to_ui();
         }
+    }
+
+    /// Import raw view bytes directly (browser file picker / tests).
+    pub fn import_view_from_bytes(
+        &self,
+        bytes: Vec<u8>,
+        line_width: usize,
+        skip_x: usize,
+        skip_y: usize,
+        copy_w: usize,
+        copy_h: usize,
+    ) {
+        if bytes.is_empty() {
+            self.state.borrow_mut().status_message =
+                "Failed to import view: file is empty".to_string();
+        } else {
+            let mut state = self.state.borrow_mut();
+            state.import_raw_view(
+                &bytes,
+                line_width.max(1),
+                skip_x,
+                skip_y,
+                copy_w.max(1),
+                copy_h.max(1),
+            );
+            state.status_message = format!("Imported {} bytes into view", bytes.len());
+        }
+        self.sync_to_ui();
     }
 
     pub fn handle_key(&self, key: &str) {
@@ -2102,6 +2265,17 @@ impl GuiController {
         self.sync_to_ui();
     }
 
+    /// Load a tile from in-memory bytes (browser file picker / tests).
+    pub fn tileset_load_tile_from_bytes(&self, bytes: Vec<u8>) {
+        {
+            let mut state = self.state.borrow_mut();
+            if let Err(e) = state.load_tile_bytes(&bytes) {
+                state.status_message = format!("Failed to load tile: {e}");
+            }
+        }
+        self.sync_to_ui();
+    }
+
     pub fn tileset_save_tile(&self, path: &Path) {
         {
             let state = self.state.borrow();
@@ -2116,6 +2290,17 @@ impl GuiController {
         {
             let mut state = self.state.borrow_mut();
             if let Err(e) = state.load_tileset_file(path) {
+                state.status_message = format!("Failed to load tileset: {e}");
+            }
+        }
+        self.sync_to_ui();
+    }
+
+    /// Load a tile set from in-memory bytes (browser file picker / tests).
+    pub fn tileset_load_set_from_bytes(&self, bytes: Vec<u8>) {
+        {
+            let mut state = self.state.borrow_mut();
+            if let Err(e) = state.load_tileset_bytes(&bytes) {
                 state.status_message = format!("Failed to load tileset: {e}");
             }
         }
@@ -2461,6 +2646,17 @@ impl GuiController {
         }
         self.sync_to_ui();
     }
+}
+
+/// FNV-1a 64-bit hash, hex-encoded — used by the WASM smoke-test harness to
+/// detect byte-level changes in the font banks / view buffer.
+fn fnv1a_hex(data: &[u8]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in data {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
 }
 
 #[cfg(test)]

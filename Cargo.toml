@@ -3,4 +3,5 @@ resolver = "2"
 members = [
     "crates/afm_core",
     "crates/afm_gui",
+    "crates/afm_web",
 ]

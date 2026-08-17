@@ -29,6 +29,8 @@ use afm_core::view::operations::{
     replace_char_x_with_y, shift_area,
 };
 
+use crate::io::{FileService, create_file_service};
+
 /// Clipboard transformation kind (matches C# MegaCopy `ExecuteCopyArea*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClipboardTransform {
@@ -1535,19 +1537,21 @@ impl GuiState {
         self.open_project_file_inner(path, false)
     }
 
-    /// Open a `.atrview` project from disk.
+    /// Parse and apply an `.atrview` project from raw bytes.
     ///
     /// Restores view, colors, pages, and resets undo history and dirty state —
     /// matching the C# `LoadViewFile(...)` lifecycle. When `load_fonts` is true
     /// the embedded font banks are restored into the live font model; when false
     /// the live fonts are left untouched (C# keeps the current fonts on "No").
-    fn open_project_file_inner(
+    /// The project path and status message are left to the caller (an
+    /// in-memory/browser load has no real path).
+    pub fn open_project_bytes(
         &mut self,
-        path: &Path,
+        bytes: &[u8],
         load_fonts: bool,
     ) -> Result<(), AtrViewFormatError> {
-        let mut file = std::fs::File::open(path)?;
-        let project = AtrViewProject::load(&mut file)?;
+        let mut reader = std::io::Cursor::new(bytes);
+        let project = AtrViewProject::load(&mut reader)?;
 
         // Restore the font banks into the live font model only when requested.
         if load_fonts {
@@ -1557,7 +1561,6 @@ impl GuiState {
         }
 
         self.project = project;
-        self.project_path = Some(path.to_path_buf());
         self.active_page_index = 0;
         self.is_char_edited = false;
 
@@ -1640,6 +1643,20 @@ impl GuiState {
         self.renderer.set_color_registers(self.project.colors);
         self.render_full_atlas();
         self.is_dirty = false;
+        Ok(())
+    }
+
+    /// Open a `.atrview` project from disk.
+    fn open_project_file_inner(
+        &mut self,
+        path: &Path,
+        load_fonts: bool,
+    ) -> Result<(), AtrViewFormatError> {
+        let bytes = create_file_service()
+            .read_bytes(path)
+            .map_err(|e| AtrViewFormatError::Io(std::io::Error::other(e)))?;
+        self.open_project_bytes(&bytes, load_fonts)?;
+        self.project_path = Some(path.to_path_buf());
         self.status_message = format!("Opened project: {}", path.display());
         Ok(())
     }
@@ -1657,8 +1674,9 @@ impl GuiState {
         self.status_message = "Loaded fonts embedded in project".to_string();
     }
 
-    /// Save current project to specified path or current project path.
-    pub fn save_project_file(&mut self, path: &Path) -> Result<(), AtrViewFormatError> {
+    /// Serialize the current project (including live font/page/tile edits) to
+    /// `.atrview` bytes without touching the filesystem.
+    pub fn save_project_bytes(&mut self) -> Result<Vec<u8>, AtrViewFormatError> {
         // Persist live font edits into the project DTO before serializing.
         // (Previously `project.font_banks` was never synced from `self.fonts`,
         // so character/font edits were silently dropped on save.)
@@ -1696,11 +1714,47 @@ impl GuiState {
                 hex::encode(&self.project.line_fonts);
         }
 
-        let mut file = std::fs::File::create(path)?;
-        self.project.save(&mut file)?;
+        let mut out = Vec::new();
+        self.project.save(&mut out)?;
+        Ok(out)
+    }
+
+    /// Save current project to specified path or current project path.
+    pub fn save_project_file(&mut self, path: &Path) -> Result<(), AtrViewFormatError> {
+        let bytes = self.save_project_bytes()?;
+        create_file_service()
+            .write_bytes(path, &bytes)
+            .map_err(|e| AtrViewFormatError::Io(std::io::Error::other(e)))?;
         self.project_path = Some(path.to_path_buf());
         self.is_dirty = false;
         self.status_message = format!("Saved project to: {}", path.display());
+        Ok(())
+    }
+
+    /// Parse and apply binary font bytes (`.fnt` or `.fn2`) into font bank
+    /// `bank_idx` (0..=3).
+    pub fn open_font_bytes(
+        &mut self,
+        bytes: &[u8],
+        bank_idx: usize,
+        is_fn2: bool,
+    ) -> Result<(), std::io::Error> {
+        let mut reader = std::io::Cursor::new(bytes);
+        if is_fn2 {
+            let offset = (bank_idx / 2) * 2048;
+            let dual_buf = afm_core::codecs::binary_fnt::load_fn2(&mut reader)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            self.fonts.as_bytes_mut()[offset..offset + 2048].copy_from_slice(&dual_buf);
+        } else {
+            let offset = (bank_idx % 4) * 1024;
+            let single_buf = afm_core::codecs::binary_fnt::load_fnt(&mut reader)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            self.fonts.as_bytes_mut()[offset..offset + 1024].copy_from_slice(&single_buf);
+        }
+
+        self.font_undo.add_to_undo_full_difference_scan(&self.fonts);
+        self.render_full_atlas();
+        self.is_dirty = true;
         Ok(())
     }
 
@@ -1711,24 +1765,35 @@ impl GuiState {
         bank_idx: usize,
         is_fn2: bool,
     ) -> Result<(), std::io::Error> {
-        let mut file = std::fs::File::open(path)?;
-        if is_fn2 {
-            let offset = (bank_idx / 2) * 2048;
-            let dual_buf = afm_core::codecs::binary_fnt::load_fn2(&mut file)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            self.fonts.as_bytes_mut()[offset..offset + 2048].copy_from_slice(&dual_buf);
-        } else {
-            let offset = (bank_idx % 4) * 1024;
-            let single_buf = afm_core::codecs::binary_fnt::load_fnt(&mut file)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-            self.fonts.as_bytes_mut()[offset..offset + 1024].copy_from_slice(&single_buf);
-        }
-
-        self.font_undo.add_to_undo_full_difference_scan(&self.fonts);
-        self.render_full_atlas();
-        self.is_dirty = true;
+        let bytes = create_file_service()
+            .read_bytes(path)
+            .map_err(std::io::Error::other)?;
+        self.open_font_bytes(&bytes, bank_idx, is_fn2)?;
         self.status_message = format!("Loaded font: {}", path.display());
         Ok(())
+    }
+
+    /// Serialize the specified font bank to binary font bytes (`.fnt`/`.fn2`).
+    pub fn save_font_bytes(
+        &self,
+        bank_idx: usize,
+        is_fn2: bool,
+    ) -> Result<Vec<u8>, std::io::Error> {
+        let mut out = Vec::new();
+        if is_fn2 {
+            let offset = (bank_idx / 2) * 2048;
+            let mut dual_buf = [0u8; 2048];
+            dual_buf.copy_from_slice(&self.fonts.as_bytes()[offset..offset + 2048]);
+            afm_core::codecs::binary_fnt::save_fn2(&dual_buf, &mut out)
+                .map_err(std::io::Error::other)?;
+        } else {
+            let offset = (bank_idx % 4) * 1024;
+            let mut single_buf = [0u8; 1024];
+            single_buf.copy_from_slice(&self.fonts.as_bytes()[offset..offset + 1024]);
+            afm_core::codecs::binary_fnt::save_fnt(&single_buf, &mut out)
+                .map_err(std::io::Error::other)?;
+        }
+        Ok(out)
     }
 
     /// Save binary font (`.fnt` or `.fn2`) from specified font bank.
@@ -1738,21 +1803,10 @@ impl GuiState {
         bank_idx: usize,
         is_fn2: bool,
     ) -> Result<(), std::io::Error> {
-        let mut file = std::fs::File::create(path)?;
-        if is_fn2 {
-            let offset = (bank_idx / 2) * 2048;
-            let mut dual_buf = [0u8; 2048];
-            dual_buf.copy_from_slice(&self.fonts.as_bytes()[offset..offset + 2048]);
-            afm_core::codecs::binary_fnt::save_fn2(&dual_buf, &mut file)
-                .map_err(std::io::Error::other)?;
-        } else {
-            let offset = (bank_idx % 4) * 1024;
-            let mut single_buf = [0u8; 1024];
-            single_buf.copy_from_slice(&self.fonts.as_bytes()[offset..offset + 1024]);
-            afm_core::codecs::binary_fnt::save_fnt(&single_buf, &mut file)
-                .map_err(std::io::Error::other)?;
-        }
-        Ok(())
+        let bytes = self.save_font_bytes(bank_idx, is_fn2)?;
+        create_file_service()
+            .write_bytes(path, &bytes)
+            .map_err(std::io::Error::other)
     }
 
     /// Generate text export representation of fonts.
@@ -1809,15 +1863,21 @@ impl GuiState {
     // LEGACY VIEW LOADING (Phase 21B-4)
     // =========================================================================
 
-    /// Load a legacy `.vf2` or `.vfn` view file, matching C# `ActionLoadView`.
-    pub fn open_legacy_view_file(&mut self, path: &Path, is_vf2: bool) -> Result<(), String> {
-        let data = std::fs::read(path).map_err(|e| e.to_string())?;
+    /// Parse and apply a legacy `.vf2` or `.vfn` view from raw bytes.
+    pub fn open_legacy_view_bytes(&mut self, bytes: &[u8], is_vf2: bool) -> Result<(), String> {
         let legacy = if is_vf2 {
-            parse_vf2(&data, &self.palette)?
+            parse_vf2(bytes, &self.palette)?
         } else {
-            parse_vfn(&data, &self.palette)?
+            parse_vfn(bytes, &self.palette)?
         };
         self.apply_legacy_view(legacy);
+        Ok(())
+    }
+
+    /// Load a legacy `.vf2` or `.vfn` view file, matching C# `ActionLoadView`.
+    pub fn open_legacy_view_file(&mut self, path: &Path, is_vf2: bool) -> Result<(), String> {
+        let data = create_file_service().read_bytes(path)?;
+        self.open_legacy_view_bytes(&data, is_vf2)?;
         self.status_message = format!("Loaded legacy view: {}", path.display());
         Ok(())
     }
@@ -2320,19 +2380,28 @@ impl GuiState {
         true
     }
 
-    /// Load single tile file (`.atrtile`).
-    pub fn load_tile_file(&mut self, path: &Path) -> Result<(), std::io::Error> {
-        let mut file = std::fs::File::open(path)?;
-        let tile_json = AtrTileJson::load(&mut file)?;
+    /// Parse and apply a single tile (`.atrtile`) from raw bytes.
+    pub fn load_tile_bytes(&mut self, bytes: &[u8]) -> Result<(), std::io::Error> {
+        let mut reader = std::io::Cursor::new(bytes);
+        let tile_json = AtrTileJson::load(&mut reader)?;
         self.current_tile_mut().load_saved(&tile_json.tile);
         self.tile_undo = TileUndoBuffer::new();
         self.is_dirty = true;
+        Ok(())
+    }
+
+    /// Load single tile file (`.atrtile`).
+    pub fn load_tile_file(&mut self, path: &Path) -> Result<(), std::io::Error> {
+        let bytes = create_file_service()
+            .read_bytes(path)
+            .map_err(std::io::Error::other)?;
+        self.load_tile_bytes(&bytes)?;
         self.status_message = format!("Loaded tile: {}", path.display());
         Ok(())
     }
 
-    /// Save single tile file (`.atrtile`).
-    pub fn save_tile_file(&self, path: &Path) -> Result<(), std::io::Error> {
+    /// Serialize the current tile to `.atrtile` bytes.
+    pub fn save_tile_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
         let saved_data = self
             .current_tile()
             .to_saved(self.selected_tile_idx)
@@ -2341,15 +2410,23 @@ impl GuiState {
             version: Some("1".to_string()),
             tile: saved_data,
         };
-        let mut file = std::fs::File::create(path)?;
-        tile_json.save(&mut file)?;
-        Ok(())
+        let mut out = Vec::new();
+        tile_json.save(&mut out)?;
+        Ok(out)
     }
 
-    /// Load TileSet file (`.atrset` or `.atrtileset`).
-    pub fn load_tileset_file(&mut self, path: &Path) -> Result<(), std::io::Error> {
-        let mut file = std::fs::File::open(path)?;
-        let set_json = AtrTileSetJson::load(&mut file)?;
+    /// Save single tile file (`.atrtile`).
+    pub fn save_tile_file(&self, path: &Path) -> Result<(), std::io::Error> {
+        let bytes = self.save_tile_bytes()?;
+        create_file_service()
+            .write_bytes(path, &bytes)
+            .map_err(std::io::Error::other)
+    }
+
+    /// Parse and apply a TileSet (`.atrset`/`.atrtileset`) from raw bytes.
+    pub fn load_tileset_bytes(&mut self, bytes: &[u8]) -> Result<(), std::io::Error> {
+        let mut reader = std::io::Cursor::new(bytes);
+        let set_json = AtrTileSetJson::load(&mut reader)?;
         self.tileset = TileSet::new();
         if let Some(tiles) = set_json.tiles {
             for saved_t in tiles {
@@ -2362,12 +2439,21 @@ impl GuiState {
         self.tileset_scroll_offset = 0;
         self.tile_undo = TileUndoBuffer::new();
         self.is_dirty = true;
+        Ok(())
+    }
+
+    /// Load TileSet file (`.atrset` or `.atrtileset`).
+    pub fn load_tileset_file(&mut self, path: &Path) -> Result<(), std::io::Error> {
+        let bytes = create_file_service()
+            .read_bytes(path)
+            .map_err(std::io::Error::other)?;
+        self.load_tileset_bytes(&bytes)?;
         self.status_message = format!("Loaded tileset: {}", path.display());
         Ok(())
     }
 
-    /// Save TileSet file (`.atrset` or `.atrtileset`).
-    pub fn save_tileset_file(&self, path: &Path) -> Result<(), std::io::Error> {
+    /// Serialize the current TileSet to `.atrset` bytes.
+    pub fn save_tileset_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
         let mut saved_tiles = Vec::new();
         for (i, tile) in self.tileset.tiles.iter().enumerate() {
             if let Some(s) = tile.to_saved(i) {
@@ -2378,9 +2464,17 @@ impl GuiState {
             version: Some("1".to_string()),
             tiles: Some(saved_tiles),
         };
-        let mut file = std::fs::File::create(path)?;
-        set_json.save(&mut file)?;
-        Ok(())
+        let mut out = Vec::new();
+        set_json.save(&mut out)?;
+        Ok(out)
+    }
+
+    /// Save TileSet file (`.atrset` or `.atrtileset`).
+    pub fn save_tileset_file(&self, path: &Path) -> Result<(), std::io::Error> {
+        let bytes = self.save_tileset_bytes()?;
+        create_file_service()
+            .write_bytes(path, &bytes)
+            .map_err(std::io::Error::other)
     }
 
     /// Reset all tiles in TileSet to blank.
@@ -2422,20 +2516,38 @@ impl GuiState {
         self.status_message = "Configuration reset to defaults".to_string();
     }
 
+    /// Serialize the application configuration to bytes.
+    pub fn save_config_bytes(&self) -> Result<Vec<u8>, std::io::Error> {
+        let mut out = Vec::new();
+        self.config.save(&mut out)?;
+        Ok(out)
+    }
+
     pub fn save_config_file(&mut self, path: Option<&Path>) -> Result<(), std::io::Error> {
         let p = path.unwrap_or_else(|| Path::new("FontMaker.json"));
-        let mut file = std::fs::File::create(p)?;
-        self.config.save(&mut file)?;
+        let bytes = self.save_config_bytes()?;
+        create_file_service()
+            .write_bytes(p, &bytes)
+            .map_err(std::io::Error::other)?;
         self.show_config_dialog = false;
         self.status_message = format!("Configuration saved to {}", p.display());
+        Ok(())
+    }
+
+    /// Parse the application configuration from bytes.
+    pub fn load_config_bytes(&mut self, bytes: &[u8]) -> Result<(), std::io::Error> {
+        let mut reader = std::io::Cursor::new(bytes);
+        self.config = ConfigurationJson::load(&mut reader)?;
         Ok(())
     }
 
     pub fn load_config_file(&mut self, path: Option<&Path>) -> Result<(), std::io::Error> {
         let p = path.unwrap_or_else(|| Path::new("FontMaker.json"));
         if p.exists() {
-            let mut file = std::fs::File::open(p)?;
-            self.config = ConfigurationJson::load(&mut file)?;
+            let bytes = create_file_service()
+                .read_bytes(p)
+                .map_err(std::io::Error::other)?;
+            self.load_config_bytes(&bytes)?;
             self.status_message = format!("Configuration loaded from {}", p.display());
         }
         Ok(())

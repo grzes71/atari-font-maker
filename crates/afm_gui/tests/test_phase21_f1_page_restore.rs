@@ -5,6 +5,9 @@
 //! Page 1 (matching C# `LoadViewFile` → `SwopPageAction(0)`), not the page
 //! that happened to be active at save time.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 
