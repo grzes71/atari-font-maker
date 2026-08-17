@@ -8,8 +8,34 @@ afm_core = { path = "../afm_core" }
 slint = "1.9"
 hex = "0.4"
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
-arboard = "3"
 log = "0.4"
+
+# `arboard` has no WebAssembly backend, so it is only available on native targets.
+# On `wasm32` the browser Clipboard API (`web-sys`) is used instead — see
+# `crates/afm_gui/src/io.rs` (`SystemClipboard` vs `WebClipboard`).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+arboard = "3"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Navigator",
+    "Clipboard",
+    "Document",
+    "Element",
+    "EventTarget",
+    "HtmlInputElement",
+    "HtmlElement",
+    "HtmlAnchorElement",
+    "Blob",
+    "BlobPropertyBag",
+    "Url",
+    "File",
+    "FileList",
+] }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
 
 [build-dependencies]
 slint-build = "1.9"

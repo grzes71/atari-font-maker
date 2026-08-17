@@ -5,6 +5,9 @@
 //! These tests verify the live TileSet is synced with `AtrViewProject.tiles`
 //! on open and save, and that no data is lost across a project roundtrip.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 

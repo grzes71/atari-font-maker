@@ -1,5 +1,8 @@
 //! Final comprehensive end-to-end integration tests validating full C# -> Rust/Slint application parity.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 

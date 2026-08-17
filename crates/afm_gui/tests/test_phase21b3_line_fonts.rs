@@ -1,5 +1,8 @@
 //! Phase 21B-3 View Line-Font Editing regression tests.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 

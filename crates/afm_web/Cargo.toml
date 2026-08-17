@@ -1,0 +1,22 @@
+[package]
+name = "afm_web"
+version = "0.1.0"
+edition = "2024"
+description = "Minimal WebAssembly (browser) entry point + smoke-test harness for Atari Font Maker."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+afm_gui = { path = "../afm_gui" }
+slint = "1.9"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+# Used directly only to opt into Slint's non-blocking ("spawn") event loop,
+# which is required on wasm32 — winit's blocking `run()` throws a control-flow
+# JS exception on the web target.
+i-slint-backend-winit = "1.9"

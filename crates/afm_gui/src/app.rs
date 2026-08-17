@@ -148,7 +148,15 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
-            ui.on_open_project_clicked(move || c.open_project());
+            ui.on_open_project_clicked(move || {
+                #[cfg(not(target_arch = "wasm32"))]
+                c.open_project();
+                #[cfg(target_arch = "wasm32")]
+                spawn_browser_open(".atrview,.vf2,.vfn,.dat", {
+                    let c = c.clone();
+                    move |name, bytes| c.open_project_from_bytes(&name, bytes)
+                });
+            });
         }
         {
             let c = controller.clone();
@@ -164,7 +172,23 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
-            ui.on_open_font(move |n| c.open_font(n as usize));
+            ui.on_open_font(move |n| {
+                let n = n as usize;
+                #[cfg(not(target_arch = "wasm32"))]
+                c.open_font(n);
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let accept = if n == 1 || n == 3 {
+                        ".fnt,.fn2"
+                    } else {
+                        ".fnt"
+                    };
+                    spawn_browser_open(accept, {
+                        let c = c.clone();
+                        move |name, bytes| c.open_font_from_bytes(n, &name, bytes)
+                    });
+                }
+            });
         }
         {
             let c = controller.clone();
@@ -176,7 +200,15 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
-            ui.on_open_palette(move || c.open_palette());
+            ui.on_open_palette(move || {
+                #[cfg(not(target_arch = "wasm32"))]
+                c.open_palette();
+                #[cfg(target_arch = "wasm32")]
+                spawn_browser_open(".pal", {
+                    let c = c.clone();
+                    move |_name, bytes| c.open_palette_from_bytes(bytes)
+                });
+            });
         }
         {
             let c = controller.clone();
@@ -184,7 +216,15 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
-            ui.on_open_tile_dialog(move || c.tileset_load_tile_dialog());
+            ui.on_open_tile_dialog(move || {
+                #[cfg(not(target_arch = "wasm32"))]
+                c.tileset_load_tile_dialog();
+                #[cfg(target_arch = "wasm32")]
+                spawn_browser_open(".atrtile", {
+                    let c = c.clone();
+                    move |_name, bytes| c.tileset_load_tile_from_bytes(bytes)
+                });
+            });
         }
         {
             let c = controller.clone();
@@ -192,7 +232,15 @@ impl AfmApp {
         }
         {
             let c = controller.clone();
-            ui.on_open_tileset_dialog(move || c.tileset_load_set_dialog());
+            ui.on_open_tileset_dialog(move || {
+                #[cfg(not(target_arch = "wasm32"))]
+                c.tileset_load_set_dialog();
+                #[cfg(target_arch = "wasm32")]
+                spawn_browser_open(".atrset,.atrtileset", {
+                    let c = c.clone();
+                    move |_name, bytes| c.tileset_load_set_from_bytes(bytes)
+                });
+            });
         }
         {
             let c = controller.clone();
@@ -714,6 +762,7 @@ impl AfmApp {
         {
             let c = controller.clone();
             ui.on_import_view_file(move |lw, sx, sy, w, h| {
+                #[cfg(not(target_arch = "wasm32"))]
                 c.import_view_from_file(
                     lw as usize,
                     sx as usize,
@@ -721,6 +770,20 @@ impl AfmApp {
                     w as usize,
                     h as usize,
                 );
+                #[cfg(target_arch = "wasm32")]
+                spawn_browser_open("", {
+                    let c = c.clone();
+                    move |_name, bytes| {
+                        c.import_view_from_bytes(
+                            bytes,
+                            lw as usize,
+                            sx as usize,
+                            sy as usize,
+                            w as usize,
+                            h as usize,
+                        );
+                    }
+                });
             });
         }
 
@@ -784,4 +847,32 @@ impl AfmApp {
     pub fn run(&self) -> Result<(), slint::PlatformError> {
         self.ui.run()
     }
+
+    /// Show the main window without running the event loop.
+    ///
+    /// Used on the WASM target where the event loop must be started separately
+    /// in non-blocking (`spawn`) mode via [`slint::run_event_loop`].
+    pub fn show(&self) -> Result<(), slint::PlatformError> {
+        self.ui.show()
+    }
+
+    /// Access the controller (used by the WASM smoke-test harness).
+    pub fn controller(&self) -> &Rc<GuiController> {
+        &self.controller
+    }
+}
+
+/// Spawn the asynchronous browser file picker and route the result to `on_file`.
+///
+/// WASM only: the native frontend uses the synchronous `rfd` dialogs instead.
+#[cfg(target_arch = "wasm32")]
+fn spawn_browser_open<F>(accept: &'static str, on_file: F)
+where
+    F: FnOnce(String, Vec<u8>) + 'static,
+{
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Some((name, bytes)) = crate::io::browser_open_file(accept).await {
+            on_file(name, bytes);
+        }
+    });
 }

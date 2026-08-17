@@ -1,5 +1,8 @@
 //! Phase 21B-4 legacy formats (.vf2/.vfn/.dat) + font .dat/ZX0 regression tests.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 

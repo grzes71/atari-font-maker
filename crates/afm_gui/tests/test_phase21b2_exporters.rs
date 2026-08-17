@@ -5,6 +5,9 @@
 //! (dialog, clipboard, file write) is covered by the unit tests in
 //! `crates/afm_gui/src/controller.rs`.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 

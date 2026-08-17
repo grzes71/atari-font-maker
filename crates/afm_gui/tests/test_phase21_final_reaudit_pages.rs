@@ -4,6 +4,9 @@
 //! deleting the active page used to save the deleted page's (stale) view onto
 //! the surviving page that shifted into its slot.
 
+#[path = "../src/io.rs"]
+mod io;
+
 #[path = "../src/state.rs"]
 mod state;
 
